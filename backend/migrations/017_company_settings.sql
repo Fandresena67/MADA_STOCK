@@ -1,0 +1,7 @@
+-- 017_company_settings.sql — Paramètres entreprise (tenant-scopés, modifiables par company_admin)
+
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS email VARCHAR(255) NOT NULL DEFAULT '';
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS phone VARCHAR(64) NOT NULL DEFAULT '';
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS address VARCHAR(500) NOT NULL DEFAULT '';
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS city VARCHAR(120) NOT NULL DEFAULT '';
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS country VARCHAR(120) NOT NULL DEFAULT 'Madagascar';

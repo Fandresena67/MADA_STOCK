@@ -1,0 +1,24 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: madastock-db
+    restart: unless-stopped
+    # Port dédié MADA STOCK : 5435 (5432=PG14 et 5434=PG16 déjà occupés sur l'hôte)
+    ports:
+      - "${DB_PORT:-5435}:5432"
+    environment:
+      POSTGRES_DB: ${DB_NAME:-madastock}
+      POSTGRES_USER: ${DB_USER:-madastock}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-madastock_dev_only}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-madastock} -d ${DB_NAME:-madastock}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  postgres_data:
+    name: madastock_postgres_data

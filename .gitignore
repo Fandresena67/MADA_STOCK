@@ -1,0 +1,29 @@
+# === MADA STOCK — secrets & env ===
+.env
+.env.*
+!.env.example
+
+# === Deps ===
+node_modules/
+.pnp
+.pnp.*
+
+# === Build ===
+dist/
+build/
+coverage/
+*.log
+
+# === OS / IDE ===
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# === Docker ===
+postgres_data/
+
+# === Divers ===
+*.pem
+*.key
