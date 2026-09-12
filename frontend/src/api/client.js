@@ -3,7 +3,9 @@ import axios from 'axios';
 const ACCESS_KEY = 'madastock_access';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1',
+  // En LAN (vérification QR depuis un téléphone) : VITE_PUBLIC_API_URL pointe
+  // vers l'IP locale du PC. Sinon : fonctionnement localhost inchangé.
+  baseURL: import.meta.env.VITE_PUBLIC_API_URL || import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1',
   timeout: 15000,
   withCredentials: true, // envoie le cookie HttpOnly du refresh token
 });
@@ -15,6 +17,18 @@ export function getAccessToken() {
 export function setAccessToken(token) {
   if (token) localStorage.setItem(ACCESS_KEY, token);
   else localStorage.removeItem(ACCESS_KEY);
+}
+
+/**
+ * Résout une URL d'asset backend (ex. avatar `/uploads/avatars/xxx.png`)
+ * en URL absolue affichable dans un <img>.
+ */
+export function resolveAssetUrl(path) {
+  if (!path) return null;
+  if (/^https?:\/\//i.test(path) || path.startsWith('data:') || path.startsWith('blob:')) return path;
+  const base = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+  const origin = base.replace(/\/api\/v1\/?$/, '');
+  return `${origin}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
 api.interceptors.request.use((config) => {

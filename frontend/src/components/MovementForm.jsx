@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Field, TextInput, PrimaryButton } from './ui';
+import { Field, TextInput, PrimaryButton, Select, Textarea } from './ui';
 
 const TITLES = {
   in: 'Nouvelle entrée de stock',
@@ -59,11 +59,10 @@ export function MovementForm({ mode, products, onSubmit, submitting }) {
 
   return (
     <form onSubmit={handle} className="space-y-4">
-      <Field label="Produit *">
-        <select
+      <Field label="Produit *" required>
+        <Select
           value={form.product_id}
           onChange={(e) => set('product_id', e.target.value)}
-          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-primary-500"
         >
           <option value="">— Choisir un produit —</option>
           {products.map((p) => (
@@ -71,7 +70,7 @@ export function MovementForm({ mode, products, onSubmit, submitting }) {
               {p.name} ({p.sku}) — stock : {p.quantity}
             </option>
           ))}
-        </select>
+        </Select>
       </Field>
       {selected && (
         <p className="rounded-lg bg-slate-50 p-2 text-sm text-slate-600" role="status">
@@ -87,10 +86,10 @@ export function MovementForm({ mode, products, onSubmit, submitting }) {
           )}
         </p>
       )}
-      <Field label={mode === 'adjustment' ? 'Nouveau stock *' : 'Quantité *'}>
+      <Field label={mode === 'adjustment' ? 'Nouveau stock *' : 'Quantité *'} required>
         <TextInput required inputMode="numeric" value={form.quantity} onChange={(e) => set('quantity', e.target.value)} />
       </Field>
-      <Field label={mode === 'adjustment' ? 'Motif *' : 'Motif'}>
+      <Field label={mode === 'adjustment' ? 'Motif *' : 'Motif'} required={mode === 'adjustment'}>
         <TextInput
           value={form.reason}
           onChange={(e) => set('reason', e.target.value)}
@@ -102,15 +101,14 @@ export function MovementForm({ mode, products, onSubmit, submitting }) {
         <TextInput value={form.reference} onChange={(e) => set('reference', e.target.value)} maxLength={64} placeholder="REC-2026-001" />
       </Field>
       <Field label="Notes">
-        <textarea
+        <Textarea
           value={form.notes}
           onChange={(e) => set('notes', e.target.value)}
           maxLength={1000}
           rows={2}
-          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
         />
       </Field>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
       <PrimaryButton disabled={submitting}>{submitting ? 'Enregistrement…' : SUBMITS[mode]}</PrimaryButton>
     </form>
   );

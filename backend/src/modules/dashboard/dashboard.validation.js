@@ -37,7 +37,15 @@ function normalizePeriod(q) {
 }
 
 const trendsQuerySchema = periodSchema;
-const summaryQuerySchema = periodSchema;
+const summaryQuerySchema = periodBase
+  .extend({
+    // Comparaison période précédente : ?compare=true (champ `compare` additif).
+    compare: z
+      .enum(['true', 'false', '1', '0'])
+      .transform((v) => v === 'true' || v === '1')
+      .optional(),
+  })
+  .superRefine(periodRefine);
 
 const topQuerySchema = periodBase.extend({
   limit: z.coerce.number().int().min(1).max(20).default(5),

@@ -5,3 +5,5 @@ node_modules/
 dist/
 coverage/
 *.log
+# Photos de profil locales (références en DB, fichiers générés au runtime)
+uploads/

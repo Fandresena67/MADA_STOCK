@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { PageHeader, Loading, Empty, ErrorBox, Modal, Pagination, SearchInput } from '../components/common';
+import { Plus, Pencil, Power, Users } from 'lucide-react';
+import { PageHeader, Loading, ErrorBox, Modal, Pagination, SearchInput, EmptyState, InactiveBadge } from '../components/common';
+import { Button, Card } from '../components/ui';
 import { TierForm } from '../components/TierForm';
 import { usePermissions } from '../hooks/usePermissions';
 
-export function makeTierPage({ title, subtitle, createLabel, api, managePerm }) {
+export function makeTierPage({ title, subtitle, singular, emptyTitle, emptyMessage, createLabel, api, managePerm }) {
   return function TierPage() {
     const { can } = usePermissions();
     const [items, setItems] = useState([]);
@@ -68,12 +70,9 @@ export function makeTierPage({ title, subtitle, createLabel, api, managePerm }) 
           subtitle={subtitle}
           action={
             can(managePerm) && (
-              <button
-                onClick={() => setModal({ mode: 'create' })}
-                className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700"
-              >
-                {createLabel}
-              </button>
+              <Button onClick={() => setModal({ mode: 'create' })} icon={<Plus size={16} aria-hidden="true" />}>
+                {createLabel.replace('+ ', '')}
+              </Button>
             )
           }
         />
@@ -90,34 +89,43 @@ export function makeTierPage({ title, subtitle, createLabel, api, managePerm }) 
         ) : error ? (
           <ErrorBox message={error} onRetry={load} />
         ) : items.length === 0 ? (
-          <Empty message="Aucun élément." />
+          <EmptyState
+            icon={<Users size={22} aria-hidden="true" />}
+            title={emptyTitle || 'Aucun élément'}
+            message={emptyMessage || 'Ajoutez votre premier tiers pour le retrouver ici.'}
+            action={can(managePerm) && (
+              <Button onClick={() => setModal({ mode: 'create' })} icon={<Plus size={16} aria-hidden="true" />}>
+                {createLabel.replace('+ ', '')}
+              </Button>
+            )}
+          />
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {items.map((t) => (
-              <div key={t.id} className="rounded-xl border border-slate-200 bg-white p-4">
+              <Card key={t.id}>
                 <div className="flex items-start justify-between gap-2">
-                  <h3 className="font-semibold">{t.name}</h3>
-                  {!t.is_active && <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs text-slate-600">Désactivé</span>}
+                  <h3 className="truncate font-semibold">{t.name}</h3>
+                  {!t.is_active && <InactiveBadge label="Désactivé" />}
                 </div>
-                {(t.email || t.phone) && <p className="mt-1 text-sm text-slate-500">{[t.email, t.phone].filter(Boolean).join(' · ')}</p>}
-                {t.address && <p className="mt-1 text-sm text-slate-600">{t.address}</p>}
+                {(t.email || t.phone) && <p className="mt-1 truncate text-sm text-slate-500">{[t.email, t.phone].filter(Boolean).join(' · ')}</p>}
+                {t.address && <p className="mt-1 line-clamp-2 text-sm text-slate-600">{t.address}</p>}
                 {can(managePerm) && (
-                  <div className="mt-3 flex gap-3">
-                    <button onClick={() => setModal({ mode: 'edit', item: t })} className="text-sm font-semibold text-primary-600 hover:underline">
-                      Modifier
+                  <div className="mt-3 flex gap-3 border-t border-slate-100 pt-3">
+                    <button onClick={() => setModal({ mode: 'edit', item: t })} className="inline-flex items-center gap-1 rounded text-sm font-semibold text-primary-600 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary-500" aria-label={`Modifier ${t.name}`}>
+                      <Pencil size={14} aria-hidden="true" />Modifier
                     </button>
-                    <button onClick={() => toggleActive(t)} className="text-sm font-semibold text-amber-600 hover:underline">
-                      {t.is_active ? 'Désactiver' : 'Réactiver'}
+                    <button onClick={() => toggleActive(t)} className="inline-flex items-center gap-1 rounded text-sm font-semibold text-amber-600 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-amber-500" aria-label={`${t.is_active ? 'Désactiver' : 'Réactiver'} ${t.name}`}>
+                      <Power size={14} aria-hidden="true" />{t.is_active ? 'Désactiver' : 'Réactiver'}
                     </button>
                   </div>
                 )}
-              </div>
+              </Card>
             ))}
           </div>
         )}
         <Pagination meta={meta} onPage={setPage} />
         {modal && (
-          <Modal title={modal.mode === 'create' ? createLabel.replace('+ ', '') : 'Modifier'} onClose={() => setModal(null)}>
+          <Modal title={modal.mode === 'create' ? createLabel.replace('+ ', '') : `Modifier ${singular || 'le tiers'}`} onClose={() => setModal(null)}>
             <TierForm initial={modal.item} onSubmit={handleSubmit} submitting={submitting} />
           </Modal>
         )}

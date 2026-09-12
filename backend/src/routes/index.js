@@ -1,5 +1,6 @@
 const express = require('express');
 const authRoutes = require('../modules/auth/auth.routes');
+const profileRoutes = require('../modules/profile/profile.routes');
 const usersRoutes = require('../modules/users/users.routes');
 const superadminRoutes = require('../modules/superadmin/superadmin.routes');
 const categoriesRoutes = require('../modules/categories/categories.routes');
@@ -28,6 +29,9 @@ router.get('/health', async (req, res) => {
 });
 
 router.use('/auth', authRoutes);
+router.use('/profile', profileRoutes);
+router.use('/verify', require('../modules/verify/verify.routes'));
+router.use('/notifications', require('../modules/notifications/notification.routes'));
 router.use('/users', usersRoutes);
 router.use('/superadmin', superadminRoutes);
 router.use('/categories', categoriesRoutes);

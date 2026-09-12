@@ -37,4 +37,19 @@ const logoutAllSchema = z.object({
   userId: z.coerce.number().int().positive('userId invalide').optional(),
 });
 
-module.exports = { registerSchema, loginSchema, refreshSchema, logoutAllSchema };
+const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, 'Mot de passe actuel requis').max(128),
+    newPassword: passwordSchema,
+    confirmPassword: z.string().min(1, 'Confirmation requise').max(128),
+  })
+  .refine((d) => d.newPassword === d.confirmPassword, {
+    message: 'La confirmation ne correspond pas au nouveau mot de passe',
+    path: ['confirmPassword'],
+  });
+
+const sessionIdParamSchema = z.object({
+  id: z.coerce.number().int().positive('ID invalide'),
+});
+
+module.exports = { registerSchema, loginSchema, refreshSchema, logoutAllSchema, changePasswordSchema, sessionIdParamSchema };

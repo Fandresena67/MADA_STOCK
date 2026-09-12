@@ -6,8 +6,15 @@ const db = require('../../config/db');
  * pour les graphiques (même politique que l'inventaire Étape 4).
  */
 
-async function summary(companyId, { from, to }) {
-  const [stock, sales, purchases, profit] = await Promise.all([
+/**
+ * Règles métier (stables, documentées ici) :
+ * - CA / ventes : status 'confirmed' uniquement (draft et cancelled ignorés), sans double comptage ;
+ * - Bénéfice : ventes confirmées, Σ quantité × (unit_price − unit_cost snapshoté) — règle historique existante ;
+ * - Achats : status 'confirmed' uniquement ;
+ * - Comparaison : période précédente de même durée juste avant `from` ; null si base 0 (pas de % inventé).
+ */
+async function summary(companyId, { from, to, compare }) {
+  const [stock, sales, purchases, profit, customers] = await Promise.all([
     db.query(
       `SELECT COUNT(*) FILTER (WHERE is_active)::int AS products_total,
               COALESCE(SUM(quantity * purchase_price) FILTER (WHERE is_active), 0)::text AS stock_value_cost,
@@ -34,8 +41,13 @@ async function summary(companyId, { from, to }) {
        WHERE s.company_id = $1 AND s.status = 'confirmed' AND s.created_at >= $2 AND s.created_at <= $3`,
       [companyId, from, to]
     ),
+    db.query(
+      `SELECT COUNT(*) FILTER (WHERE is_active)::int AS customers_count
+       FROM customers WHERE company_id = $1`,
+      [companyId]
+    ),
   ]);
-  return {
+  const out = {
     ...stock.rows[0],
     sales_count: sales.rows[0].sales_count,
     revenue: sales.rows[0].revenue,
@@ -43,10 +55,44 @@ async function summary(companyId, { from, to }) {
     purchases_total: purchases.rows[0].purchases_total,
     cogs: profit.rows[0].cogs,
     profit: profit.rows[0].profit,
+    customers_count: customers.rows[0].customers_count,
     currency: 'MGA',
     from,
     to,
   };
+  if (compare) {
+    // Période précédente de même durée, strictement avant `from`.
+    const lenMs = new Date(to).getTime() - new Date(from).getTime();
+    const prevTo = new Date(new Date(from).getTime() - 1);
+    const prevFrom = new Date(prevTo.getTime() - lenMs);
+    const [ps, pp] = await Promise.all([
+      db.query(
+        `SELECT COUNT(*)::int AS sales_count, COALESCE(SUM(s.total), 0)::text AS revenue
+         FROM sales s WHERE s.company_id = $1 AND s.status = 'confirmed' AND s.created_at >= $2 AND s.created_at <= $3`,
+        [companyId, prevFrom.toISOString(), prevTo.toISOString()]
+      ),
+      db.query(
+        `SELECT COALESCE(SUM(si.quantity * (si.unit_price - si.unit_cost)), 0)::text AS profit
+         FROM sale_items si JOIN sales s ON s.id = si.sale_id
+         WHERE s.company_id = $1 AND s.status = 'confirmed' AND s.created_at >= $2 AND s.created_at <= $3`,
+        [companyId, prevFrom.toISOString(), prevTo.toISOString()]
+      ),
+    ]);
+    const pct = (cur, prev) => {
+      const c = Number(cur);
+      const p = Number(prev);
+      if (!Number.isFinite(c) || !Number.isFinite(p) || p === 0) return null;
+      return Math.round(((c - p) / Math.abs(p)) * 1000) / 10;
+    };
+    out.compare = {
+      from: prevFrom.toISOString(),
+      to: prevTo.toISOString(),
+      revenue_change: pct(sales.rows[0].revenue, ps.rows[0].revenue),
+      profit_change: pct(profit.rows[0].profit, pp.rows[0].profit),
+      sales_change: pct(sales.rows[0].sales_count, ps.rows[0].sales_count),
+    };
+  }
+  return out;
 }
 
 /** Granularité : jour si ≤ 62 jours, sinon mois. Séries complètes (generate_series). */

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Field, TextInput, PrimaryButton } from './ui';
+import { Field, TextInput, PrimaryButton, Textarea } from './ui';
 
 export function TierForm({ initial, onSubmit, submitting, labels }) {
   const [form, setForm] = useState({
@@ -28,7 +28,7 @@ export function TierForm({ initial, onSubmit, submitting, labels }) {
 
   return (
     <form onSubmit={handle} className="space-y-4">
-      <Field label={labels?.name || 'Nom *'}>
+      <Field label={labels?.name || 'Nom *'} required>
         <TextInput required value={form.name} onChange={(e) => set('name', e.target.value)} maxLength={200} />
       </Field>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -43,15 +43,14 @@ export function TierForm({ initial, onSubmit, submitting, labels }) {
         <TextInput value={form.address} onChange={(e) => set('address', e.target.value)} maxLength={500} />
       </Field>
       <Field label="Notes">
-        <textarea
+        <Textarea
           value={form.notes}
           onChange={(e) => set('notes', e.target.value)}
           maxLength={1000}
           rows={2}
-          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100"
         />
       </Field>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
       <PrimaryButton disabled={submitting}>{submitting ? 'Enregistrement…' : 'Enregistrer'}</PrimaryButton>
     </form>
   );

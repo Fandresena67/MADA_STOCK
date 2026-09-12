@@ -25,3 +25,23 @@ export async function me() {
   const { data } = await api.get('/auth/me');
   return data.data;
 }
+
+export async function changeMyPassword(payload) {
+  const { data } = await api.patch('/auth/password', payload);
+  return data.data; // { ok, revokedSessions }
+}
+
+export async function listMySessions() {
+  const { data } = await api.get('/auth/sessions');
+  return data.data; // [{ id, userAgent, ipAddress, createdAt, lastUsedAt, expiresAt, current }]
+}
+
+export async function revokeMySession(id) {
+  const { data } = await api.delete(`/auth/sessions/${id}`);
+  return data.data; // { ok }
+}
+
+export async function logoutAllDevices() {
+  const { data } = await api.post('/auth/logout-all', {});
+  return data.data; // { ok, revokedSessions }
+}

@@ -17,4 +17,20 @@ async function patch(req, res, next) {
   }
 }
 
-module.exports = { get, patch };
+async function setLogo(req, res, next) {
+  try {
+    res.json({ data: await service.setLogo(req.authUser, req.file, getRequestMeta(req)) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function removeLogo(req, res, next) {
+  try {
+    res.json({ data: await service.removeLogo(req.authUser, getRequestMeta(req)) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { get, patch, setLogo, removeLogo };

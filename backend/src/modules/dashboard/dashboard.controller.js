@@ -3,7 +3,12 @@ const { normalizePeriod } = require('./dashboard.validation');
 
 async function summary(req, res, next) {
   try {
-    res.json({ data: await service.summary(req.authUser.companyId, normalizePeriod(req.query)) });
+    res.json({
+      data: await service.summary(req.authUser.companyId, {
+        ...normalizePeriod(req.query),
+        compare: req.query.compare === true,
+      }),
+    });
   } catch (err) {
     next(err);
   }

@@ -1,6 +1,7 @@
 const authService = require('./auth.service');
 const { setRefreshCookie, clearRefreshCookie, REFRESH_COOKIE } = require('../../utils/cookies');
 const { getRequestMeta } = require('../../utils/requestMeta');
+const { hashToken } = require('../../utils/crypto');
 
 function metaOf(req) {
   return getRequestMeta(req);
@@ -72,4 +73,39 @@ async function me(req, res, next) {
   }
 }
 
-module.exports = { register, login, refresh, logout, logoutAll, me };
+async function changePassword(req, res, next) {
+  try {
+    // Compte issu du JWT uniquement ; la session courante (cookie) est conservée.
+    const raw = refreshRawOf(req);
+    const result = await authService.changePassword(
+      req.authUser.id,
+      req.body,
+      metaOf(req),
+      raw ? hashToken(raw) : null
+    );
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function listSessions(req, res, next) {
+  try {
+    const raw = refreshRawOf(req);
+    const result = await authService.listSessions(req.authUser.id, raw ? hashToken(raw) : null);
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function revokeSession(req, res, next) {
+  try {
+    const result = await authService.revokeSession(req.authUser.id, Number(req.params.id), metaOf(req));
+    res.json({ data: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { register, login, refresh, logout, logoutAll, me, changePassword, listSessions, revokeSession };

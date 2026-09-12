@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { PageHeader, Loading, ErrorBox } from '../components/common';
-import { STATUS_STYLE } from '../components/DocPage';
+import { useNavigate, useParams, Link } from 'react-router-dom';
+import { Check, XCircle, ArrowLeft, FileText } from 'lucide-react';
+import { PageHeader, Loading, ErrorBox, Table, Thead, Th, Td } from '../components/common';
+import { StatusBadge } from '../components/common';
+import { Button } from '../components/ui';
 import { usePermissions } from '../hooks/usePermissions';
 import { useInvalidateStats } from '../hooks/useInvalidateStats';
 import { formatMGA } from '../lib/format';
@@ -17,12 +19,23 @@ export function makeDocDetail(cfg) {
     const [error, setError] = useState('');
     const [acting, setActing] = useState(false);
     const [notice, setNotice] = useState('');
+    const [invoice, setInvoice] = useState(null);
 
     const load = useCallback(async () => {
       setLoading(true);
       setError('');
       try {
-        setDoc(await cfg.api.get(id));
+        const d = await cfg.api.get(id);
+        setDoc(d);
+        // Facture associée (ventes confirmées uniquement, via cfg opt-in).
+        if (cfg.linkedInvoice && d.status === 'confirmed') {
+          cfg.linkedInvoice
+            .list(d.id)
+            .then((rows) => setInvoice(rows[0] || null))
+            .catch(() => {});
+        } else {
+          setInvoice(null);
+        }
       } catch (err) {
         setError(err.response?.data?.error || 'Chargement impossible');
       } finally {
@@ -69,8 +82,8 @@ export function makeDocDetail(cfg) {
 
     return (
       <div>
-        <button onClick={() => navigate(cfg.basePath)} className="mb-4 text-sm font-semibold text-primary-600 hover:underline">
-          ← Retour
+        <button onClick={() => navigate(cfg.basePath)} className="mb-4 inline-flex items-center gap-1 rounded text-sm font-semibold text-primary-600 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary-500">
+          <ArrowLeft size={16} aria-hidden="true" />Retour
         </button>
         <PageHeader
           title={`${cfg.singular} ${doc.reference}`}
@@ -78,49 +91,45 @@ export function makeDocDetail(cfg) {
           action={
             <div className="flex flex-wrap gap-2">
               {isDraft && can(cfg.perms.confirm) && (
-                <button disabled={acting} onClick={onConfirm} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
+                <Button variant="success" loading={acting} onClick={onConfirm} icon={<Check size={16} aria-hidden="true" />}>
                   Confirmer
-                </button>
+                </Button>
               )}
               {isDraft && can(cfg.perms.update) && (
-                <button disabled={acting} onClick={onCancel} className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50">
+                <Button variant="dangerOutline" loading={acting} onClick={onCancel} icon={<XCircle size={16} aria-hidden="true" />}>
                   Annuler le brouillon
-                </button>
+                </Button>
               )}
             </div>
           }
         />
         {notice && <p className="mb-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700" role="status">{notice}</p>}
         <div className="mb-4 flex items-center gap-3">
-          <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_STYLE[doc.status]}`}>{doc.status}</span>
+          <StatusBadge status={doc.status} />
           <span className="text-sm text-slate-500">Total : <strong className="text-slate-800">{formatMGA(doc.total)}</strong></span>
         </div>
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full min-w-[560px] text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-500">
-                <th className="px-4 py-3">Produit</th>
-                <th className="px-4 py-3 text-right">Qté</th>
-                <th className="px-4 py-3 text-right">P.U.</th>
-                <th className="px-4 py-3 text-right">Remise</th>
-                <th className="px-4 py-3 text-right">Taxe</th>
-                <th className="px-4 py-3 text-right">Ligne</th>
+        <Table minWidth="min-w-[560px]">
+          <Thead>
+            <Th>Produit</Th>
+            <Th right>Qté</Th>
+            <Th right>P.U.</Th>
+            <Th right>Remise</Th>
+            <Th right>Taxe</Th>
+            <Th right>Ligne</Th>
+          </Thead>
+          <tbody>
+            {doc.items.map((l) => (
+              <tr key={l.id} className="border-b border-slate-100 last:border-0">
+                <Td><div className="font-semibold">{l.product_name}</div><div className="text-xs text-slate-500">{l.product_sku}</div></Td>
+                <Td right><span className="tabular-nums">{l.quantity}</span></Td>
+                <Td right muted><span className="tabular-nums">{formatMGA(l.unit_price)}</span></Td>
+                <Td right muted><span className="tabular-nums">{formatMGA(l.discount)}</span></Td>
+                <Td right muted><span className="tabular-nums">{formatMGA(l.tax)}</span></Td>
+                <Td right><span className="font-semibold tabular-nums">{formatMGA(l.line_total)}</span></Td>
               </tr>
-            </thead>
-            <tbody>
-              {doc.items.map((l) => (
-                <tr key={l.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-4 py-3"><div className="font-semibold">{l.product_name}</div><div className="text-xs text-slate-500">{l.product_sku}</div></td>
-                  <td className="px-4 py-3 text-right">{l.quantity}</td>
-                  <td className="px-4 py-3 text-right">{formatMGA(l.unit_price)}</td>
-                  <td className="px-4 py-3 text-right">{formatMGA(l.discount)}</td>
-                  <td className="px-4 py-3 text-right">{formatMGA(l.tax)}</td>
-                  <td className="px-4 py-3 text-right font-semibold">{formatMGA(l.line_total)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </Table>
         <div className="ml-auto mt-4 max-w-xs space-y-1 rounded-xl border border-slate-200 bg-white p-4 text-sm">
           <p className="flex justify-between"><span>Sous-total</span><span>{formatMGA(doc.subtotal)}</span></p>
           <p className="flex justify-between"><span>Remise</span><span>{formatMGA(doc.discount)}</span></p>
@@ -129,6 +138,29 @@ export function makeDocDetail(cfg) {
         </div>
         {doc.notes && <p className="mt-4 text-sm text-slate-600">Notes : {doc.notes}</p>}
         {!isDraft && <p className="mt-4 text-xs text-slate-500">Document {doc.status} : lignes et montants figés (historique).</p>}
+        {cfg.linkedInvoice && !isDraft && (
+          <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-4 text-sm">
+            <FileText size={17} aria-hidden="true" className="shrink-0 text-slate-400" />
+            {invoice ? (
+              <>
+                <span className="min-w-0">
+                  Facture associée : <strong>{invoice.invoice_number}</strong>
+                  <span className="ml-2 text-xs text-slate-500">{invoice.status}</span>
+                </span>
+                <Link to={`${cfg.linkedInvoice.basePath}/${invoice.id}`} className="ml-auto shrink-0 rounded font-semibold text-primary-600 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary-500">
+                  Voir la facture
+                </Link>
+              </>
+            ) : (
+              <>
+                <span className="text-slate-600">Aucune facture pour cette vente.</span>
+                <Link to={cfg.linkedInvoice.basePath} className="ml-auto shrink-0 rounded font-semibold text-primary-600 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary-500">
+                  Créer une facture
+                </Link>
+              </>
+            )}
+          </div>
+        )}
       </div>
     );
   };

@@ -1,8 +1,10 @@
 const db = require('../../config/db');
 const audit = require('../audit/audit.service');
+const notifications = require('../notifications/notification.service');
+const crypto = require('crypto');
 const { calcTotals } = require('../../utils/money');
 
-const COLS = `i.id, i.company_id, i.sale_id, i.customer_id, i.user_id, i.invoice_number, i.status,
+const COLS = `i.id, i.company_id, i.sale_id, i.customer_id, i.user_id, i.invoice_number, i.status, i.verify_token, i.company_snapshot,
   i.subtotal, i.discount, i.tax, i.total, i.issued_at, i.due_at, i.notes, i.created_at, i.updated_at`;
 
 function notFound() {
@@ -49,11 +51,25 @@ async function list(companyId, q) {
     params.push(`%${q.search}%`);
     conds.push(`(i.invoice_number ILIKE $${params.length} OR c.name ILIKE $${params.length})`);
   }
+  if (q.sale_id) {
+    params.push(q.sale_id);
+    conds.push(`i.sale_id = $${params.length}`);
+  }
+  if (q.customer_id) {
+    params.push(q.customer_id);
+    conds.push(`i.customer_id = $${params.length}`);
+  }
   const where = `WHERE ${conds.join(' AND ')}`;
   const join = 'FROM invoices i JOIN customers c ON c.id = i.customer_id AND c.company_id = i.company_id';
+  // Tri whitelisté (jamais de colonne brute client) ; défaut = récent d'abord.
+  const orderCol = {
+    invoice_number: 'i.invoice_number', created_at: 'i.created_at', total: 'i.total',
+    status: 'i.status', customer: 'c.name',
+  }[q.sort] || 'i.id';
+  const orderDir = q.order === 'asc' ? 'ASC' : 'DESC';
   const countRes = await db.query(`SELECT COUNT(*)::int AS total ${join} ${where}`, params);
   const dataRes = await db.query(
-    `SELECT ${COLS}, c.name AS customer_name ${join} ${where} ORDER BY i.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+    `SELECT ${COLS}, c.name AS customer_name ${join} ${where} ORDER BY ${orderCol} ${orderDir}, i.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
     [...params, q.limit, (q.page - 1) * q.limit]
   );
   const total = countRes.rows[0].total;
@@ -142,10 +158,20 @@ async function create(actor, body, meta = {}) {
       lines = totals.lines;
     }
     const number = await genNumber(client);
+    const verifyToken = crypto.randomBytes(32).toString('hex'); // 128 bits, non prédictible
+    // Snapshot d'identité entreprise : la facture finalisée reste historiquement
+    // cohérente même si l'entreprise change ensuite (nom, adresse, logo…).
+    const co = await client.query(
+      `SELECT name, trade_name, email, phone, address, city, country, logo_url, owner_name, website,
+              tax_id, stat_number, rcs_number, payment_info, payment_terms
+       FROM companies WHERE id = $1 LIMIT 1`,
+      [actor.companyId]
+    );
+    const companySnapshot = co.rows[0] || null;
     const r = await client.query(
-      `INSERT INTO invoices (company_id, sale_id, customer_id, user_id, invoice_number, status, subtotal, discount, tax, total, due_at, notes)
-       VALUES ($1,$2,$3,$4,$5,'draft',$6,$7,$8,$9,$10,$11) RETURNING id`,
-      [actor.companyId, saleId, customerId, actor.id, number, totals.subtotal, totals.discount, totals.tax, totals.total,
+      `INSERT INTO invoices (company_id, sale_id, customer_id, user_id, invoice_number, status, verify_token, company_snapshot, subtotal, discount, tax, total, due_at, notes)
+       VALUES ($1,$2,$3,$4,$5,'draft',$6,$7::jsonb,$8,$9,$10,$11,$12,$13) RETURNING id`,
+      [actor.companyId, saleId, customerId, actor.id, number, verifyToken, companySnapshot ? JSON.stringify(companySnapshot) : null, totals.subtotal, totals.discount, totals.tax, totals.total,
         body.due_at ? body.due_at.toISOString() : null, body.notes ?? '']
     );
     for (const l of lines) {
@@ -162,7 +188,17 @@ async function create(actor, body, meta = {}) {
       ip: meta.ip, userAgent: meta.userAgent,
     });
     await client.query('COMMIT');
-    return fetchFull(db, r.rows[0].id, actor.companyId);
+    const invoice = await fetchFull(db, r.rows[0].id, actor.companyId);
+    notifications.notifyEvent({
+      companyId: actor.companyId,
+      type: 'INVOICE_CREATED',
+      title: 'Nouvelle facture',
+      message: `La facture ${invoice.invoice_number} (${notifications.formatAr(invoice.total)}) a été créée.`,
+      entityType: 'invoice',
+      entityId: invoice.id,
+      metadata: { invoice_number: invoice.invoice_number, total: invoice.total },
+    });
+    return invoice;
   } catch (e) {
     await client.query('ROLLBACK');
     throw e;
@@ -199,7 +235,19 @@ async function setStatus(actor, id, status, meta = {}) {
       ip: meta.ip, userAgent: meta.userAgent,
     });
     await client.query('COMMIT');
-    return fetchFull(db, id, actor.companyId);
+    const invoice = await fetchFull(db, id, actor.companyId);
+    if (status === 'paid') {
+      notifications.notifyEvent({
+        companyId: actor.companyId,
+        type: 'INVOICE_PAID',
+        title: 'Facture payée',
+        message: `La facture ${invoice.invoice_number} (${notifications.formatAr(invoice.total)}) a été payée.`,
+        entityType: 'invoice',
+        entityId: invoice.id,
+        metadata: { invoice_number: invoice.invoice_number, total: invoice.total },
+      });
+    }
+    return invoice;
   } catch (e) {
     await client.query('ROLLBACK');
     throw e;

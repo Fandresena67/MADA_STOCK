@@ -44,6 +44,12 @@ const AUDIT_ACTIONS = [
   'SALE_CANCELLED',
   'INVOICE_CREATED',
   'INVOICE_UPDATED',
+  'AVATAR_UPDATED',
+  'AVATAR_REMOVED',
+  'USER_PROFILE_UPDATED',
+  'USER_PASSWORD_CHANGED',
+  'USER_SESSION_REVOKED',
+  'NOTIFICATION_DELETED',
 ];
 
 // Clés interdites dans les métadonnées d'audit (banni toute fuite de secret).

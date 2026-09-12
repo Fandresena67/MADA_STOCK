@@ -2,15 +2,21 @@ const db = require('../../config/db');
 const audit = require('../audit/audit.service');
 const { applyMovement } = require('../stock/stock.service');
 const { STOCK_STATUS_CASE, stockStatus } = require('../../utils/stockStatus');
+const path = require('path');
+const { makeImageStore } = require('../uploads/imageUpload');
+
+const PRODUCT_IMAGE_DIR = path.join(__dirname, '..', '..', '..', 'uploads', 'products');
+const PRODUCT_IMAGE_PREFIX = '/uploads/products/';
+const productImages = makeImageStore({ dir: PRODUCT_IMAGE_DIR, urlPrefix: PRODUCT_IMAGE_PREFIX });
 
 const BASE_COLS = `p.id, p.company_id, p.category_id, p.name, p.sku, p.description,
   p.purchase_price, p.sale_price, p.quantity, p.min_stock, p.unit, p.barcode,
-  p.is_active, p.created_at, p.updated_at`;
+  p.image_url, p.is_active, p.created_at, p.updated_at`;
 
 // RETURNING n'a pas d'alias de table : mêmes colonnes sans préfixe.
 const RETURNING_COLS = `id, company_id, category_id, name, sku, description,
   purchase_price, sale_price, quantity, min_stock, unit, barcode,
-  is_active, created_at, updated_at`;
+  image_url, is_active, created_at, updated_at`;
 
 const WITH_COMPUTED = `${BASE_COLS},
   (p.sale_price - p.purchase_price) AS margin,
@@ -92,7 +98,7 @@ async function list(companyId, q) {
   if (q.lowStock === 'true') conds.push('p.quantity > 0 AND p.quantity <= p.min_stock');
   if (q.normalOnly === 'true') conds.push('p.quantity > p.min_stock');
   const where = `WHERE ${conds.join(' AND ')}`;
-  const orderCol = { id: 'p.id', name: 'p.name', quantity: 'p.quantity', purchase_price: 'p.purchase_price', sale_price: 'p.sale_price', created_at: 'p.created_at' }[q.sort];
+  const orderCol = { id: 'p.id', name: 'p.name', quantity: 'p.quantity', purchase_price: 'p.purchase_price', sale_price: 'p.sale_price', created_at: 'p.created_at', updated_at: 'p.updated_at' }[q.sort];
   const orderDir = q.order === 'desc' ? 'DESC' : 'ASC';
   const countRes = await db.query(`SELECT COUNT(*)::int AS total ${FROM_ACTIVE} ${where}`, params);
   const dataRes = await db.query(
@@ -232,4 +238,122 @@ async function remove(actor, id, meta = {}) {
   }
 }
 
-module.exports = { list, getById, create, patch, remove };
+function withComputed(row) {
+  return {
+    ...row,
+    margin: String(BigInt(row.sale_price) - BigInt(row.purchase_price)),
+    stock_status: stockStatus(row.quantity, row.min_stock),
+  };
+}
+
+/**
+ * Photo produit : produit tenant-scopé, image validée (magic bytes) AVANT écriture.
+ * Ancien fichier supprimé après succès uniquement, jamais celui d'un autre produit
+ * (garde UUID strict du store). Audit : PRODUCT_UPDATED (convention existante).
+ */
+async function setImage(actor, id, file, meta = {}) {
+  const cur = await db.query(
+    `SELECT id, name, sku, image_url FROM products WHERE id = $1 AND company_id = $2 LIMIT 1`,
+    [id, actor.companyId]
+  );
+  if (!cur.rows[0]) throw notFound();
+  const saved = await productImages.save(file);
+
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    const r = await client.query(
+      `UPDATE products SET image_url = $1, updated_at = NOW() WHERE id = $2 AND company_id = $3 RETURNING ${RETURNING_COLS}`,
+      [saved.url, id, actor.companyId]
+    );
+    if (!r.rows[0]) throw notFound();
+    await db.setTenantContext(client, actor.companyId);
+    await audit.log({
+      client, userId: actor.id, companyId: actor.companyId, action: 'PRODUCT_UPDATED',
+      entityType: 'product', entityId: id, metadata: { name: cur.rows[0].name, sku: cur.rows[0].sku, image: true },
+      ip: meta.ip, userAgent: meta.userAgent,
+    });
+    await client.query('COMMIT');
+    if (cur.rows[0].image_url && cur.rows[0].image_url !== saved.url) {
+      await productImages.removeForUrl(cur.rows[0].image_url);
+    }
+    return withComputed(r.rows[0]);
+  } catch (e) {
+    await client.query('ROLLBACK');
+    await productImages.removeForUrl(saved.url); // pas de fichier orphelin
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** Retire la photo produit (retour sans image). Idempotent. */
+async function removeImage(actor, id, meta = {}) {
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    const cur = await client.query(
+      `SELECT id, name, sku, image_url FROM products WHERE id = $1 AND company_id = $2 LIMIT 1 FOR UPDATE`,
+      [id, actor.companyId]
+    );
+    if (!cur.rows[0]) throw notFound();
+    let row = cur.rows[0];
+    if (row.image_url) {
+      const r = await client.query(
+        `UPDATE products SET image_url = NULL, updated_at = NOW() WHERE id = $1 RETURNING ${RETURNING_COLS}`,
+        [id]
+      );
+      row = r.rows[0];
+      await db.setTenantContext(client, actor.companyId);
+      await audit.log({
+        client, userId: actor.id, companyId: actor.companyId, action: 'PRODUCT_UPDATED',
+        entityType: 'product', entityId: id, metadata: { name: row.name, sku: row.sku, image_removed: true },
+        ip: meta.ip, userAgent: meta.userAgent,
+      });
+    }
+    await client.query('COMMIT');
+    if (cur.rows[0].image_url) await productImages.removeForUrl(cur.rows[0].image_url);
+    const full = await db.query(
+      `SELECT ${BASE_COLS}, (p.sale_price - p.purchase_price) AS margin, (${STOCK_STATUS_CASE}) AS stock_status, cat.name AS category_name
+       ${FROM_ACTIVE} WHERE p.id = $1 AND p.company_id = $2 LIMIT 1`,
+      [id, actor.companyId]
+    );
+    return full.rows[0];
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Statistiques réelles du produit (une seule requête, agrégations SQL).
+ * Ventes/achats confirmés uniquement ; profit via unit_cost snapshoté.
+ */
+async function stats(id, companyId) {
+  const r = await db.query(
+    `SELECT
+      (SELECT COUNT(*) FROM products WHERE id = $2 AND company_id = $1) AS exists_row,
+      (SELECT COALESCE(SUM(si.quantity), 0)::int FROM sale_items si JOIN sales s ON s.id = si.sale_id
+        WHERE si.product_id = $2 AND s.company_id = $1 AND s.status = 'confirmed') AS quantity_sold,
+      (SELECT COUNT(DISTINCT s.id)::int FROM sales s JOIN sale_items si ON si.sale_id = s.id
+        WHERE si.product_id = $2 AND s.company_id = $1 AND s.status = 'confirmed') AS sales_count,
+      (SELECT COALESCE(SUM(si.quantity * si.unit_price), 0)::text FROM sale_items si JOIN sales s ON s.id = si.sale_id
+        WHERE si.product_id = $2 AND s.company_id = $1 AND s.status = 'confirmed') AS revenue,
+      (SELECT COALESCE(SUM(si.quantity * (si.unit_price - si.unit_cost)), 0)::text FROM sale_items si JOIN sales s ON s.id = si.sale_id
+        WHERE si.product_id = $2 AND s.company_id = $1 AND s.status = 'confirmed') AS profit,
+      (SELECT COALESCE(SUM(pi.quantity), 0)::int FROM purchase_items pi JOIN purchases p ON p.id = pi.purchase_id
+        WHERE pi.product_id = $2 AND p.company_id = $1 AND p.status = 'confirmed') AS quantity_purchased,
+      (SELECT COUNT(DISTINCT p.id)::int FROM purchases p JOIN purchase_items pi ON pi.purchase_id = p.id
+        WHERE pi.product_id = $2 AND p.company_id = $1 AND p.status = 'confirmed') AS purchases_count,
+      (SELECT (pr.quantity * pr.purchase_price)::text FROM products pr WHERE pr.id = $2 AND pr.company_id = $1) AS stock_value`,
+    [companyId, id]
+  );
+  const row = r.rows[0];
+  if (!row || Number(row.exists_row) === 0) throw notFound();
+  delete row.exists_row;
+  return row;
+}
+
+module.exports = { list, getById, create, patch, remove, setImage, removeImage, stats };

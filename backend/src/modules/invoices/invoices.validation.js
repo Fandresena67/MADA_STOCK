@@ -12,6 +12,10 @@ const invoiceListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().trim().max(120).optional(),
   status: z.enum(['draft', 'issued', 'paid', 'cancelled']).optional(),
+  sale_id: z.coerce.number().int().positive().optional(), // facture associée à une vente
+  customer_id: z.coerce.number().int().positive().optional(),
+  sort: z.enum(['invoice_number', 'created_at', 'total', 'status', 'customer']).optional(),
+  order: z.enum(['asc', 'desc']).default('desc'),
   date_from: z.coerce.date().optional(),
   date_to: z.coerce.date().optional(),
 });

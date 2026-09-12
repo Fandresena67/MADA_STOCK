@@ -6,7 +6,7 @@ const idParamSchema = z.object({
 
 const int0 = z.coerce.number().int('Entier requis').min(0, 'Valeur négative interdite');
 
-const SORT_FIELDS = ['id', 'name', 'quantity', 'purchase_price', 'sale_price', 'created_at'];
+const SORT_FIELDS = ['id', 'name', 'quantity', 'purchase_price', 'sale_price', 'created_at', 'updated_at'];
 
 const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),

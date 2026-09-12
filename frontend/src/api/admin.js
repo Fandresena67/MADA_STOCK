@@ -50,3 +50,22 @@ export async function updateSettings(payload) {
   const { data } = await api.patch('/settings', payload);
   return data.data;
 }
+
+export function companyLogoSrc(logoUrl) {
+  if (!logoUrl) return null;
+  if (/^https?:\/\//i.test(logoUrl)) return logoUrl;
+  const base = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+  return `${base.replace(/\/api\/v1\/?$/, '')}${logoUrl.startsWith('/') ? logoUrl : `/${logoUrl}`}`;
+}
+
+export async function uploadCompanyLogo(file) {
+  const form = new FormData();
+  form.append('logo', file);
+  const { data } = await api.patch('/settings/logo', form);
+  return data.data;
+}
+
+export async function deleteCompanyLogo() {
+  const { data } = await api.delete('/settings/logo');
+  return data.data;
+}

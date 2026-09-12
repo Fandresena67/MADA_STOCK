@@ -1,6 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { PageHeader, Loading, ErrorBox } from '../components/common';
+import { CheckCircle2 } from 'lucide-react';
+import { PageHeader, Loading, ErrorBox, StockBadge, EmptyState } from '../components/common';
+import { Card } from '../components/ui';
 import { usePermissions } from '../hooks/usePermissions';
 import { alertsList } from '../api/stats';
 
@@ -18,28 +20,28 @@ export default function AlertsPage() {
     <div>
       <PageHeader title="Alertes" subtitle="Ruptures et stocks faibles — données temps réel" />
       {query.isPending ? <Loading /> : query.isError ? <ErrorBox message="Impossible de charger les alertes." onRetry={() => query.refetch()} /> : items.length === 0 ? (
-        <p className="rounded-xl border border-slate-200 bg-emerald-50 p-6 text-center text-sm text-emerald-700">
-          Tout est en ordre : aucun produit en rupture ni en stock faible.
-        </p>
+        <EmptyState
+          icon={<CheckCircle2 size={22} aria-hidden="true" className="text-emerald-500" />}
+          title="Tout est en ordre"
+          message="Aucun produit en rupture ni en stock faible."
+        />
       ) : (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((p) => (
-            <div key={p.id} className={`rounded-xl border bg-white p-4 ${p.level === 'RUPTURE' ? 'border-red-300' : 'border-amber-300'}`}>
+            <Card key={p.id} className={p.level === 'RUPTURE' ? 'border-red-300' : 'border-amber-300'}>
               <div className="flex items-start justify-between gap-2">
-                <div>
-                  <h3 className="font-semibold">{p.name}</h3>
-                  <p className="text-xs text-slate-500">{p.sku}{p.category_name ? ` · ${p.category_name}` : ''}</p>
+                <div className="min-w-0">
+                  <h3 className="truncate font-semibold">{p.name}</h3>
+                  <p className="truncate text-xs text-slate-500">{p.sku}{p.category_name ? ` · ${p.category_name}` : ''}</p>
                 </div>
-                <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${p.level === 'RUPTURE' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
-                  {p.level}
-                </span>
+                <StockBadge status={p.level} />
               </div>
-              <p className="mt-2 text-sm">Quantité : <strong>{p.quantity}</strong> · Seuil : <strong>{p.min_stock}</strong></p>
-              <div className="mt-3 flex gap-3 text-sm">
-                <Link to="/app/products" className="font-semibold text-primary-600 hover:underline">Produits</Link>
-                <Link to="/app/inventory" className="font-semibold text-primary-600 hover:underline">Inventaire</Link>
+              <p className="mt-2 text-sm">Quantité : <strong className="tabular-nums">{p.quantity}</strong> · Seuil : <strong className="tabular-nums">{p.min_stock}</strong></p>
+              <div className="mt-3 flex gap-3 border-t border-slate-100 pt-3 text-sm">
+                <Link to="/app/products" className="rounded font-semibold text-primary-600 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary-500">Produits</Link>
+                <Link to="/app/inventory" className="rounded font-semibold text-primary-600 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary-500">Inventaire</Link>
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       )}

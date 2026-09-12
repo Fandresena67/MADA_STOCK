@@ -55,8 +55,8 @@ async function createSession(client, userId, meta = {}) {
   const refreshToken = signRefreshToken(user);
   const { exp } = jwt.decode(refreshToken);
   await client.query(
-    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, user_agent, ip_address)
-     VALUES ($1, $2, to_timestamp($3), $4, $5)`,
+    `INSERT INTO refresh_tokens (user_id, token_hash, expires_at, user_agent, ip_address, last_used_at)
+     VALUES ($1, $2, to_timestamp($3), $4, $5, NOW())`,
     [userId, hashToken(refreshToken), exp, meta.userAgent || null, meta.ip || null]
   );
   return { user, accessToken: signAccessToken(user), refreshToken };
@@ -102,6 +102,15 @@ async function register({ companyName, name, email, password }, meta = {}) {
       metadata: { companyName: company.name }, ip: meta.ip, userAgent: meta.userAgent,
     });
     await client.query('COMMIT');
+    const notifications = require('../notifications/notification.service');
+    notifications.notifyEvent({
+      companyId: company.id,
+      userId: user.id,
+      type: 'SYSTEM',
+      title: 'Bienvenue sur MADA STOCK',
+      message: `Votre entreprise ${company.name} est prête. Retrouvez vos alertes dans le centre de notifications.`,
+      metadata: { company_name: company.name },
+    });
     return {
       company: { id: company.id, name: company.name, currency: company.currency },
       user: toPublicUser(user),
@@ -302,7 +311,7 @@ async function logoutAll(targetUserId, actor, meta = {}) {
 
 async function me(userId) {
   const res = await db.query(
-    `SELECT u.id, u.name, u.email, u.role, u.company_id, u.is_active,
+    `SELECT u.id, u.name, u.email, u.role, u.company_id, u.is_active, u.avatar_url,
             c.name AS company_name, c.currency AS company_currency, c.is_active AS company_active
      FROM users u LEFT JOIN companies c ON c.id = u.company_id
      WHERE u.id = $1 LIMIT 1`,
@@ -333,9 +342,110 @@ async function me(userId) {
     email: row.email,
     role: row.role,
     companyId: row.company_id,
+    avatarUrl: row.avatar_url || null,
     company: row.company_id ? { id: row.company_id, name: row.company_name, currency: row.company_currency } : null,
     permissions: resolvePermissions(row.role, codes),
   };
 }
 
-module.exports = { register, login, refresh, logout, logoutAll, me, ALLOWED_ROLES };
+/**
+ * Changement de mot de passe self-service : compte issu du JWT uniquement.
+ * Politique sessions : la session courante est conservée, les autres révoquées.
+ */
+async function changePassword(userId, { currentPassword, newPassword }, meta = {}, keepTokenHash = null) {
+  const r = await db.query(
+    `SELECT id, company_id, is_active, password_hash FROM users WHERE id = $1 LIMIT 1`,
+    [userId]
+  );
+  const row = r.rows[0];
+  if (!row || !row.is_active) {
+    const err = new Error('Utilisateur introuvable');
+    err.status = 404;
+    throw err;
+  }
+  const ok = await bcrypt.compare(currentPassword, row.password_hash);
+  if (!ok) {
+    const err = new Error('Mot de passe actuel incorrect');
+    err.status = 401;
+    throw err;
+  }
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+  const client = await db.pool.connect();
+  try {
+    await client.query('BEGIN');
+    await db.setTenantContext(client, row.company_id);
+    await client.query(`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`, [passwordHash, userId]);
+    const revoked = await client.query(
+      `UPDATE refresh_tokens SET revoked_at = NOW()
+       WHERE user_id = $1 AND revoked_at IS NULL AND ($2::text IS NULL OR token_hash != $2)`,
+      [userId, keepTokenHash]
+    );
+    await audit.log({
+      client, userId, companyId: row.company_id, action: 'USER_PASSWORD_CHANGED',
+      entityType: 'user', entityId: userId, metadata: { revoked_sessions: revoked.rowCount },
+      ip: meta.ip, userAgent: meta.userAgent,
+    });
+    await client.query('COMMIT');
+    const notifications = require('../notifications/notification.service');
+    notifications.notifyEvent({
+      companyId: row.company_id,
+      userId,
+      type: 'SECURITY',
+      title: 'Mot de passe modifié',
+      message:
+        revoked.rowCount > 0
+          ? 'Votre mot de passe a été modifié. Les autres appareils ont été déconnectés.'
+          : 'Votre mot de passe a été modifié.',
+      metadata: { revoked_sessions: revoked.rowCount },
+    });
+    return { ok: true, revokedSessions: revoked.rowCount };
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+/** Sessions actives de l'utilisateur authentifié (jamais de token exposé). */
+async function listSessions(userId, currentTokenHash = null) {
+  const r = await db.query(
+    `SELECT id, user_agent, ip_address, created_at, last_used_at, expires_at, token_hash
+     FROM refresh_tokens
+     WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > NOW()
+     ORDER BY created_at DESC LIMIT 50`,
+    [userId]
+  );
+  return r.rows.map((s) => ({
+    id: s.id,
+    userAgent: s.user_agent,
+    ipAddress: s.ip_address,
+    createdAt: s.created_at,
+    lastUsedAt: s.last_used_at,
+    expiresAt: s.expires_at,
+    current: currentTokenHash ? s.token_hash === currentTokenHash : false,
+  }));
+}
+
+/** Révoque UNE session de l'utilisateur authentifié (scopée par user_id). */
+async function revokeSession(userId, sessionId, meta = {}) {
+  const r = await db.query(
+    `UPDATE refresh_tokens SET revoked_at = NOW()
+     WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL`,
+    [sessionId, userId]
+  );
+  if (r.rowCount === 0) {
+    const err = new Error('Session introuvable');
+    err.status = 404;
+    throw err;
+  }
+  const u = await db.query(`SELECT company_id FROM users WHERE id = $1`, [userId]);
+  await audit.log({
+    userId, companyId: u.rows[0]?.company_id ?? null, action: 'USER_SESSION_REVOKED',
+    entityType: 'refresh_token', entityId: sessionId, metadata: {},
+    ip: meta.ip, userAgent: meta.userAgent,
+  });
+  return { ok: true };
+}
+
+module.exports = { register, login, refresh, logout, logoutAll, me, changePassword, listSessions, revokeSession, ALLOWED_ROLES };

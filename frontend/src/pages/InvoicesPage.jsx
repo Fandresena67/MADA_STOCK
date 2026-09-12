@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { Plus, FileText } from 'lucide-react';
 import { listInvoices, createInvoice, listSales, listCustomers, listProducts } from '../api/catalog';
-import { PageHeader, Loading, Empty, ErrorBox, Modal, Pagination, SearchInput } from '../components/common';
-import { STATUS_STYLE } from '../components/DocPage';
+import { PageHeader, Loading, ErrorBox, Modal, Pagination, SearchInput, EmptyState, Table, Thead, Th, Td } from '../components/common';
+import { StatusBadge } from '../components/common';
+import { Button } from '../components/ui';
 import { DocLinesEditor } from '../components/DocForm';
-import { Field, TextInput, PrimaryButton } from '../components/ui';
+import { Field, TextInput, PrimaryButton, Select, Textarea } from '../components/ui';
 import { usePermissions } from '../hooks/usePermissions';
 import { formatMGA } from '../lib/format';
 
@@ -56,32 +58,32 @@ function InvoiceForm({ confirmedSales, customers, products, onSubmit, submitting
 
   return (
     <form onSubmit={handle} className="space-y-4">
-      <div className="flex gap-2 text-sm">
-        <button type="button" onClick={() => setMode('sale')} className={`rounded-lg px-3 py-1.5 font-medium ${mode === 'sale' ? 'bg-primary-600 text-white' : 'border border-slate-300'}`}>
+      <div className="flex gap-2 text-sm" role="group" aria-label="Mode de création de la facture">
+        <button type="button" onClick={() => setMode('sale')} aria-pressed={mode === 'sale'} className={`rounded-lg px-3 py-1.5 font-medium outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${mode === 'sale' ? 'bg-primary-600 text-white' : 'border border-slate-300'}`}>
           Depuis une vente
         </button>
-        <button type="button" onClick={() => setMode('free')} className={`rounded-lg px-3 py-1.5 font-medium ${mode === 'free' ? 'bg-primary-600 text-white' : 'border border-slate-300'}`}>
+        <button type="button" onClick={() => setMode('free')} aria-pressed={mode === 'free'} className={`rounded-lg px-3 py-1.5 font-medium outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${mode === 'free' ? 'bg-primary-600 text-white' : 'border border-slate-300'}`}>
           Saisie libre
         </button>
       </div>
       {mode === 'sale' ? (
         <Field label="Vente confirmée *">
-          <select value={saleId} onChange={(e) => setSaleId(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+          <Select value={saleId} onChange={(e) => setSaleId(e.target.value)}>
             <option value="">— Choisir —</option>
             {confirmedSales.map((s) => (
               <option key={s.id} value={s.id}>{s.reference} — {s.tier_name} — {formatMGA(s.total)}</option>
             ))}
-          </select>
+          </Select>
         </Field>
       ) : (
         <>
           <Field label="Client *">
-            <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+            <Select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
               <option value="">— Choisir —</option>
               {customers.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
-            </select>
+            </Select>
           </Field>
           <div>
             <span className="mb-1 block text-sm font-medium text-slate-700">Lignes *</span>
@@ -93,9 +95,9 @@ function InvoiceForm({ confirmedSales, customers, products, onSubmit, submitting
         <TextInput type="date" value={dueAt} onChange={(e) => setDueAt(e.target.value)} />
       </Field>
       <Field label="Notes">
-        <textarea value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000} rows={2} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-primary-500" />
+        <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000} rows={2} />
       </Field>
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="text-sm text-red-600" role="alert">{error}</p>}
       <PrimaryButton disabled={submitting}>{submitting ? 'Création…' : 'Créer la facture'}</PrimaryButton>
     </form>
   );
@@ -105,7 +107,7 @@ export default function InvoicesPage() {
   const { can } = usePermissions();
   const [items, setItems] = useState([]);
   const [meta, setMeta] = useState(null);
-  const [filters, setFilters] = useState({ search: '', status: '' });
+  const [filters, setFilters] = useState({ search: '', status: '', customer_id: '', date_from: '', date_to: '', sort: '', order: 'desc' });
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -123,6 +125,13 @@ export default function InvoicesPage() {
       const params = { page, limit: 20 };
       if (filters.search) params.search = filters.search;
       if (filters.status) params.status = filters.status;
+      if (filters.customer_id) params.customer_id = filters.customer_id;
+      if (filters.date_from) params.date_from = filters.date_from;
+      if (filters.date_to) params.date_to = filters.date_to;
+      if (filters.sort) {
+        params.sort = filters.sort;
+        params.order = filters.order;
+      }
       const res = await listInvoices(params);
       setItems(res.data);
       setMeta(res.meta);
@@ -163,58 +172,91 @@ export default function InvoicesPage() {
         subtitle="Facturation liée aux ventes confirmées"
         action={
           can('invoices.create') && (
-            <button onClick={() => setModal(true)} className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
-              + Nouvelle facture
-            </button>
+            <Button onClick={() => setModal(true)} icon={<Plus size={16} aria-hidden="true" />}>
+              Nouvelle facture
+            </Button>
           )
         }
       />
       {notice && <p className="mb-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700" role="status">{notice}</p>}
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row">
+      <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-[1.5fr_1fr_1fr_1fr] lg:items-center">
         <SearchInput value={filters.search} onChange={(v) => { setPage(1); setFilters((f) => ({ ...f, search: v })); }} placeholder="Numéro, client…" />
-        <select value={filters.status} onChange={(e) => { setPage(1); setFilters((f) => ({ ...f, status: e.target.value })); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+        <Select value={filters.status} onChange={(e) => { setPage(1); setFilters((f) => ({ ...f, status: e.target.value })); }} aria-label="Filtrer par statut">
           <option value="">Tous statuts</option>
           <option value="draft">Brouillon</option>
           <option value="issued">Émise</option>
           <option value="paid">Payée</option>
           <option value="cancelled">Annulée</option>
-        </select>
+        </Select>
+        <Select value={filters.customer_id} onChange={(e) => { setPage(1); setFilters((f) => ({ ...f, customer_id: e.target.value })); }} aria-label="Filtrer par client">
+          <option value="">Tous clients</option>
+          {customers.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </Select>
+        <Select
+          value={filters.sort ? `${filters.sort}:${filters.order}` : ''}
+          onChange={(e) => {
+            const [sort, order] = e.target.value ? e.target.value.split(':') : ['', 'desc'];
+            setPage(1);
+            setFilters((f) => ({ ...f, sort, order }));
+          }}
+          aria-label="Trier les factures"
+        >
+          <option value="">Tri : récent</option>
+          <option value="created_at:desc">Date (récent)</option>
+          <option value="created_at:asc">Date (ancien)</option>
+          <option value="total:desc">Montant (élevé)</option>
+          <option value="total:asc">Montant (faible)</option>
+          <option value="invoice_number:asc">Numéro (A→Z)</option>
+          <option value="customer:asc">Client (A→Z)</option>
+          <option value="status:asc">Statut</option>
+        </Select>
+        <input type="date" value={filters.date_from} onChange={(e) => { setPage(1); setFilters((f) => ({ ...f, date_from: e.target.value })); }} aria-label="Date début" className="h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" />
+        <input type="date" value={filters.date_to} onChange={(e) => { setPage(1); setFilters((f) => ({ ...f, date_to: e.target.value })); }} aria-label="Date fin" className="h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" />
       </div>
       {loading ? (
         <Loading />
       ) : error ? (
         <ErrorBox message={error} onRetry={load} />
       ) : items.length === 0 ? (
-        <Empty message="Aucune facture." />
+        <EmptyState
+          icon={<FileText size={22} aria-hidden="true" />}
+          title="Aucune facture"
+          message="Créez une facture depuis une vente confirmée ou en saisie libre."
+          action={can('invoices.create') && (
+            <Button onClick={() => setModal(true)} icon={<Plus size={16} aria-hidden="true" />}>
+              Nouvelle facture
+            </Button>
+          )}
+        />
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-500">
-                <th className="px-4 py-3">Numéro</th>
-                <th className="px-4 py-3">Client</th>
-                <th className="px-4 py-3">Statut</th>
-                <th className="px-4 py-3 text-right">Total</th>
-                <th className="px-4 py-3 text-right">Détail</th>
-              </tr>
-            </thead>
+          <Table>
+            <Thead>
+              <Th>Numéro</Th>
+              <Th>Client</Th>
+              <Th>Date</Th>
+              <Th>Statut</Th>
+              <Th right>Total</Th>
+              <Th right>Détail</Th>
+            </Thead>
             <tbody>
               {items.map((f) => (
-                <tr key={f.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-4 py-3 font-semibold">{f.invoice_number}</td>
-                  <td className="px-4 py-3 text-slate-600">{f.customer_name}</td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_STYLE[f.status]}`}>{f.status}</span>
-                  </td>
-                  <td className="px-4 py-3 text-right">{formatMGA(f.total)}</td>
-                  <td className="px-4 py-3 text-right">
-                    <Link to={`/app/invoices/${f.id}`} className="font-semibold text-primary-600 hover:underline">Ouvrir</Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                <tr key={f.id} className="border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50">
+                  <Td><span className="font-semibold">{f.invoice_number}</span></Td>
+                  <Td muted>{f.customer_name}</Td>
+                  <Td muted><span className="whitespace-nowrap">{f.created_at ? new Date(f.created_at).toLocaleDateString('fr-MG') : '—'}</span></Td>
+                  <Td>
+                    <StatusBadge status={f.status} />
+                  </Td>
+                <Td right><span className="font-semibold tabular-nums">{formatMGA(f.total)}</span></Td>
+                <Td right>
+                  <Link to={`/app/invoices/${f.id}`} className="rounded font-semibold text-primary-600 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary-500">Ouvrir</Link>
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
       )}
       <Pagination meta={meta} onPage={setPage} />
       {modal && (

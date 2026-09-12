@@ -1,25 +1,16 @@
-import { useEffect, useState } from 'react';
-import { Navigate, NavLink, Outlet } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, Navigate, Outlet } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { ShieldCheck, User, Settings, LogOut, ChevronUp } from 'lucide-react';
 import { getAccessToken, setAccessToken } from '../api/client';
 import { logout as apiLogout, refresh as apiRefresh, me } from '../api/auth';
-import { OnlineStatus, UpdateBanner, useServiceWorker } from '../components/Pwa';
-
-const LINKS = [
-  { to: '/app/dashboard', label: 'Dashboard' },
-  { to: '/app', label: 'Accueil', end: true },
-  { to: '/app/products', label: 'Produits' },
-  { to: '/app/categories', label: 'Catégories' },
-  { to: '/app/inventory', label: 'Inventaire' },
-  { to: '/app/movements', label: 'Mouvements' },
-  { to: '/app/suppliers', label: 'Fournisseurs' },
-  { to: '/app/customers', label: 'Clients' },
-  { to: '/app/purchases', label: 'Achats' },
-  { to: '/app/sales', label: 'Ventes' },
-  { to: '/app/invoices', label: 'Factures' },
-  { to: '/app/reports', label: 'Rapports' },
-  { to: '/app/alerts', label: 'Alertes' },
-  { to: '/app/settings', label: 'Paramètres' },
-];
+import { avatarSrc } from '../api/profile';
+import { alertsList } from '../api/stats';
+import { usePermissions } from '../hooks/usePermissions';
+import { buildAppNav } from '../app/nav';
+import { AppShell } from '../components/AppShell';
+import { NotificationBell } from '../components/NotificationBell';
+import { Avatar, roleLabel } from '../components/ui';
 
 export function ProtectedRoute() {
   const [state, setState] = useState(() => (getAccessToken() ? 'ok' : 'checking'));
@@ -41,12 +32,86 @@ export function ProtectedRoute() {
   return <Outlet />;
 }
 
-export function AppLayout() {
-  const [user, setUser] = useState(null);
-  const { updateAvailable, applyUpdate } = useServiceWorker();
+/** Bloc profil bas de sidebar : avatar (photo ou initiales) + menu (profil, paramètres, déconnexion). */
+function SidebarProfile({ user, can, onLogout }) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef(null);
 
   useEffect(() => {
-    me().then(setUser).catch(() => {});
+    if (!open) return;
+    function onKey(e) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    function onClick(e) {
+      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false);
+    }
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onClick);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onClick);
+    };
+  }, [open ]);
+
+  const itemClass =
+    'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 outline-none hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-primary-500';
+
+  return (
+    <div ref={boxRef} className="relative">
+      {open && (
+        <div className="absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg" role="menu" aria-label="Menu du profil">
+          <Link to="/app/profile" onClick={() => setOpen(false)} role="menuitem" className={itemClass}>
+            <User size={16} aria-hidden="true" />Mon profil
+          </Link>
+          {can('settings.view') && (
+            <Link to="/app/settings" onClick={() => setOpen(false)} role="menuitem" className={itemClass}>
+              <Settings size={16} aria-hidden="true" />Paramètres
+            </Link>
+          )}
+          <button onClick={onLogout} role="menuitem" className={itemClass}>
+            <LogOut size={16} aria-hidden="true" />Déconnexion
+          </button>
+        </div>
+      )}
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label="Menu du profil"
+        title={`${user.name} — ${user.email}`}
+        className="flex w-full items-center gap-2 rounded-lg p-2 text-left outline-none hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-primary-500"
+      >
+        <Avatar name={user.name} email={user.email} src={avatarSrc(user.avatarUrl)} size="sm" />
+        <span className="min-w-0 flex-1 leading-tight">
+          <span className="block truncate text-xs font-semibold text-slate-800">{user.name}</span>
+          <span className="block truncate text-[11px] text-slate-500">{user.company?.name || roleLabel(user.role)}</span>
+        </span>
+        <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-slate-400">{roleLabel(user.role)}</span>
+        <ChevronUp size={14} aria-hidden="true" className={`shrink-0 text-slate-400 transition-transform ${open ? '' : 'rotate-180'}`} />
+      </button>
+    </div>
+  );
+}
+
+export function AppLayout() {
+  const [user, setUser] = useState(null);
+  const { can, loading } = usePermissions();
+  const alertsQuery = useQuery({
+    queryKey: ['alerts', 'count'],
+    queryFn: () => alertsList({ limit: 200 }),
+    enabled: can('alerts.view'),
+    staleTime: 60 * 1000,
+  });
+  const alertCount = Array.isArray(alertsQuery.data) ? alertsQuery.data.length : 0;
+
+  useEffect(() => {
+    function reloadUser() {
+      me().then(setUser).catch(() => {});
+    }
+    reloadUser();
+    // La page profil signale tout changement (avatar, nom).
+    window.addEventListener('profile-updated', reloadUser);
+    return () => window.removeEventListener('profile-updated', reloadUser);
   }, []);
 
   async function onLogout() {
@@ -61,44 +126,29 @@ export function AppLayout() {
   }
 
   return (
-    <div className="min-h-screen">
-      <OnlineStatus />
-      {updateAvailable && <UpdateBanner onUpdate={applyUpdate} />}
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <span className="font-bold">MADA STOCK</span>
-          <div className="flex items-center gap-3">
-            {user && <span className="hidden text-sm text-slate-500 sm:inline">{user.company?.name}</span>}
-            {user?.role === 'super_admin' && (
-              <a href="/superadmin/dashboard" className="rounded-lg bg-slate-900 px-3 py-1 text-sm font-semibold text-white hover:bg-slate-700">
-                Super Admin
-              </a>
-            )}
-            <button className="text-sm text-slate-600 hover:text-slate-900" onClick={onLogout}>
-              Déconnexion
-            </button>
-          </div>
-        </div>
-        <nav className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 pb-2">
-          {LINKS.map((l) => (
-            <NavLink
-              key={l.to}
-              to={l.to}
-              end={l.end}
-              className={({ isActive }) =>
-                `whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium ${
-                  isActive ? 'bg-primary-600 text-white' : 'text-slate-600 hover:bg-slate-100'
-                }`
-              }
-            >
-              {l.label}
-            </NavLink>
-          ))}
-        </nav>
-      </header>
-      <main className="mx-auto max-w-6xl px-4 py-8">
-        <Outlet />
-      </main>
-    </div>
+    <AppShell
+      groups={buildAppNav(can)}
+      loadingNav={loading}
+      appName="Navigation MADA STOCK"
+      sidebarBadges={alertCount > 0 ? { '/app/alerts': alertCount } : undefined}
+      headerBell={<NotificationBell />}
+      sidebarFooter={user && <SidebarProfile user={user} can={can} onLogout={onLogout} />}
+      userLine={
+        user && (
+          <span className="hidden text-sm text-slate-500 sm:inline" title={user.email}>
+            {user.company?.name}
+          </span>
+        )
+      }
+      extraHeader={
+        user?.role === 'super_admin' ? (
+          <a href="/superadmin/dashboard" className="flex items-center gap-1 rounded-lg bg-slate-900 px-3 py-1 text-sm font-semibold text-white hover:bg-slate-700">
+            <ShieldCheck size={16} aria-hidden="true" />
+            <span className="hidden sm:inline">Super Admin</span>
+          </a>
+        ) : null
+      }
+      onLogout={onLogout}
+    />
   );
 }

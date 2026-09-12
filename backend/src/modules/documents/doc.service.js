@@ -1,5 +1,6 @@
 const db = require('../../config/db');
 const audit = require('../audit/audit.service');
+const notifications = require('../notifications/notification.service');
 const { applyMovement } = require('../stock/stock.service');
 const { calcTotals } = require('../../utils/money');
 
@@ -149,7 +150,20 @@ function makeDocService(config) {
         ip: meta.ip, userAgent: meta.userAgent,
       });
       await client.query('COMMIT');
-      return fetchFull(db, r.rows[0].id, actor.companyId);
+      const doc = await fetchFull(db, r.rows[0].id, actor.companyId);
+      if (auditPrefix === 'SALE') {
+        // Best-effort après commit : ne jamais faire échouer la vente.
+        notifications.notifyEvent({
+          companyId: actor.companyId,
+          type: 'SALE_CREATED',
+          title: 'Nouvelle vente',
+          message: `Une nouvelle vente de ${notifications.formatAr(doc.total)} a été enregistrée (${doc.reference}).`,
+          entityType: 'sale',
+          entityId: doc.id,
+          metadata: { reference: doc.reference, total: doc.total, tier_name: doc.tier_name },
+        });
+      }
+      return doc;
     } catch (e) {
       await client.query('ROLLBACK');
       throw e;
@@ -276,7 +290,21 @@ function makeDocService(config) {
         ip: meta.ip, userAgent: meta.userAgent,
       });
       await client.query('COMMIT');
-      return fetchFull(db, id, actor.companyId);
+      const confirmed = await fetchFull(db, id, actor.companyId);
+      // Best-effort après commit (alreadyConfirmed sort avant : pas de doublon).
+      notifications.notifyEvent({
+        companyId: actor.companyId,
+        type: auditPrefix === 'SALE' ? 'SALE_CONFIRMED' : 'PURCHASE_CONFIRMED',
+        title: auditPrefix === 'SALE' ? 'Vente confirmée' : 'Achat confirmé',
+        message:
+          auditPrefix === 'SALE'
+            ? `La vente ${confirmed.reference} (${notifications.formatAr(confirmed.total)}) a été confirmée.`
+            : `Le bon d'achat ${confirmed.reference} a été confirmé.`,
+        entityType: auditPrefix === 'SALE' ? 'sale' : 'purchase',
+        entityId: confirmed.id,
+        metadata: { reference: confirmed.reference, total: confirmed.total, tier_name: confirmed.tier_name },
+      });
+      return confirmed;
     } catch (e) {
       await client.query('ROLLBACK');
       throw e;

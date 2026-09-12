@@ -1,5 +1,6 @@
 const db = require('../../config/db');
 const audit = require('../audit/audit.service');
+const notifications = require('../notifications/notification.service');
 
 const MOVEMENT_TYPES = ['initial', 'in', 'out', 'adjustment'];
 
@@ -31,6 +32,34 @@ function insufficient(available) {
 }
 
 /**
+ * Seuils de stock : notification UNIQUEMENT au franchissement vers le bas
+ * (jamais à la lecture, jamais sur réassort ni stock initial, jamais en replay
+ * idempotent qui sort avant). Écriture DANS la transaction du mouvement.
+ */
+async function notifyStockThreshold(client, { companyId, productId, name, minStock, before, after, type }) {
+  if (type === 'initial' || type === 'in') return;
+  const min = Number(minStock ?? 0);
+  const base = { client, companyId, entityType: 'product', entityId: productId };
+  if (after === 0 && before > 0) {
+    await notifications.createNotification({
+      ...base,
+      type: 'STOCK_OUT',
+      title: 'Rupture de stock',
+      message: `Le produit ${name} est actuellement en rupture.`,
+      metadata: { product_name: name, quantity: after },
+    });
+  } else if (after > 0 && after <= min && before > min) {
+    await notifications.createNotification({
+      ...base,
+      type: 'STOCK_LOW',
+      title: 'Stock faible',
+      message: `Le produit ${name} est presque épuisé (${after} restant${after > 1 ? 's' : ''}).`,
+      metadata: { product_name: name, quantity: after, min_stock: min },
+    });
+  }
+}
+
+/**
  * Cœur métier : applique UN mouvement DANS la transaction de l'appelant.
  * Verrouille le produit (FOR UPDATE), calcule before/after, met à jour
  * products.quantity, insère le mouvement + audit. Jamais de COMMIT ici.
@@ -42,7 +71,7 @@ async function applyMovement(client, { companyId, userId, productId, type, quant
     throw err;
   }
   const lock = await client.query(
-    `SELECT id, quantity, is_active FROM products WHERE id = $1 AND company_id = $2 LIMIT 1 FOR UPDATE`,
+    `SELECT id, name, quantity, min_stock, is_active FROM products WHERE id = $1 AND company_id = $2 LIMIT 1 FOR UPDATE`,
     [productId, companyId]
   );
   const product = lock.rows[0];
@@ -103,6 +132,10 @@ async function applyMovement(client, { companyId, userId, productId, type, quant
     ip: meta.ip, userAgent: meta.userAgent,
   });
   const full = await client.query(`SELECT ${ROW} ${FROM} WHERE m.id = $1 LIMIT 1`, [row.id]);
+  await notifyStockThreshold(client, {
+    companyId, productId, name: product.name, minStock: product.min_stock,
+    before, after, type,
+  });
   return { movement: full.rows[0], deduplicated: false };
 }
 

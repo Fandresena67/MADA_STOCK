@@ -1,4 +1,4 @@
-import api from './client';
+import api, { resolveAssetUrl } from './client';
 
 function qs(params = {}) {
   const s = new URLSearchParams();
@@ -40,6 +40,30 @@ export async function updateProduct(id, payload) {
 }
 export async function deleteProduct(id) {
   const { data } = await api.delete(`/products/${id}`);
+  return data.data;
+}
+export async function getProduct(id) {
+  const { data } = await api.get(`/products/${id}`);
+  return data.data;
+}
+export async function getProductStats(id) {
+  const { data } = await api.get(`/products/${id}/stats`);
+  return data.data;
+}
+/** URL affichable de la photo produit (null si aucune). */
+export function productImageSrc(imageUrl) {
+  return resolveAssetUrl(imageUrl);
+}
+/** Envoie la photo du produit (FormData, champ `image`). */
+export async function uploadProductImage(id, file) {
+  const form = new FormData();
+  form.append('image', file);
+  const { data } = await api.patch(`/products/${id}/image`, form);
+  return data.data;
+}
+/** Retire la photo du produit. */
+export async function deleteProductImage(id) {
+  const { data } = await api.delete(`/products/${id}/image`);
   return data.data;
 }
 
@@ -160,4 +184,23 @@ export async function createInvoice(payload) {
 export async function setInvoiceStatus(id, status) {
   const { data } = await api.patch(`/invoices/${id}/status`, { status });
   return data.data;
+}
+
+/** Vérification publique d'authenticité (sans JWT). */
+export async function verifyInvoice(token) {
+  const { data } = await api.get(`/verify/invoice/${token}`);
+  return data.data;
+}
+
+/**
+ * URL encodée dans le QR de vérification.
+ * - `VITE_PUBLIC_APP_URL` (ex. http://192.168.1.239:5174) : scannable depuis
+ *   un téléphone sur le même Wi-Fi ;
+ * - repli : origine courante (fonctionnement localhost PC inchangé).
+ * Jamais de localhost construit en dur ici.
+ */
+export function verifyInvoiceUrl(token) {
+  const base = (import.meta.env.VITE_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '')
+    || (typeof window !== 'undefined' ? window.location.origin : '');
+  return `${base}/verify/invoice/${token}`;
 }

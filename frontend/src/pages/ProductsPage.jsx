@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { listProducts, createProduct, updateProduct, deleteProduct, listCategories } from '../api/catalog';
+import { Link } from 'react-router-dom';
+import { Plus, Pencil, Ban } from 'lucide-react';
+import { listProducts, createProduct, updateProduct, deleteProduct, listCategories, uploadProductImage, deleteProductImage, productImageSrc } from '../api/catalog';
 import { usePermissions } from '../hooks/usePermissions';
 import { formatMGA } from '../lib/format';
-import { PageHeader, Loading, Empty, ErrorBox, Modal, Pagination, SearchInput, StockBadge } from '../components/common';
+import { PageHeader, Loading, ErrorBox, Modal, Pagination, SearchInput, StockBadge, Table, Thead, Th, Td, EmptyState } from '../components/common';
+import { Button, ProductImage } from '../components/ui';
 import { ProductForm } from '../components/ProductForm';
 
 export default function ProductsPage() {
@@ -51,11 +54,20 @@ export default function ProductsPage() {
     setFilters((f) => ({ ...f, [key]: value }));
   }
 
-  async function handleSubmit(payload) {
+  async function handleSubmit(payload, imageAction) {
     setSubmitting(true);
     try {
-      if (modal.mode === 'create') await createProduct(payload);
-      else await updateProduct(modal.item.id, payload);
+      let id;
+      if (modal.mode === 'create') {
+        const created = await createProduct(payload);
+        id = created.id;
+      } else {
+        await updateProduct(modal.item.id, payload);
+        id = modal.item.id;
+      }
+      // Photo : upload/remplacement ou suppression, après le produit.
+      if (imageAction?.file) await uploadProductImage(id, imageAction.file);
+      else if (imageAction?.remove) await deleteProductImage(id).catch(() => {});
       setModal(null);
       setNotice('Produit enregistré.');
       load();
@@ -82,22 +94,20 @@ export default function ProductsPage() {
         subtitle="Catalogue et stock de votre entreprise"
         action={
           can('products.create') && (
-            <button
-              onClick={() => setModal({ mode: 'create' })}
-              className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700"
-            >
-              + Nouveau produit
-            </button>
+            <Button onClick={() => setModal({ mode: 'create' })} icon={<Plus size={16} aria-hidden="true" />}>
+              Nouveau produit
+            </Button>
           )
         }
       />
-      {notice && <p className="mb-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700">{notice}</p>}
+      {notice && <p className="mb-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700" role="status">{notice}</p>}
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center">
         <SearchInput value={filters.search} onChange={(v) => setFilter('search', v)} placeholder="Nom, SKU, code-barres…" />
         <select
           value={filters.categoryId}
           onChange={(e) => setFilter('categoryId', e.target.value)}
-          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+          aria-label="Filtrer par catégorie"
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 sm:w-auto"
         >
           <option value="">Toutes catégories</option>
           {categories.map((c) => (
@@ -107,7 +117,8 @@ export default function ProductsPage() {
         <select
           value={filters.stock}
           onChange={(e) => setFilter('stock', e.target.value)}
-          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+          aria-label="Filtrer par état du stock"
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 sm:w-auto"
         >
           <option value="all">Tous stocks</option>
           <option value="low">Stock faible</option>
@@ -119,69 +130,98 @@ export default function ProductsPage() {
       ) : error ? (
         <ErrorBox message={error} onRetry={load} />
       ) : items.length === 0 ? (
-        <Empty message="Aucun produit trouvé. Créez votre premier produit avec son stock initial." />
+        <EmptyState
+          title="Aucun produit"
+          message="Vous n'avez encore aucun produit dans votre inventaire."
+          action={can('products.create') && (
+            <Button onClick={() => setModal({ mode: 'create' })} icon={<Plus size={16} aria-hidden="true" />}>
+              Ajouter un produit
+            </Button>
+          )}
+        />
       ) : (
         <>
           {/* Desktop : tableau */}
-          <div className="hidden overflow-x-auto rounded-xl border border-slate-200 bg-white md:block">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-500">
-                  <th className="px-4 py-3">Produit</th>
-                  <th className="px-4 py-3">Catégorie</th>
-                  <th className="px-4 py-3 text-right">Achat</th>
-                  <th className="px-4 py-3 text-right">Vente</th>
-                  <th className="px-4 py-3 text-right">Qté</th>
-                  <th className="px-4 py-3">Statut</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
+          <div className="hidden md:block">
+          <Table>
+            <Thead>
+              <Th>Produit</Th>
+              <Th>Catégorie</Th>
+              <Th right>Achat</Th>
+              <Th right>Vente</Th>
+              <Th right>Qté</Th>
+              <Th>Statut</Th>
+              <Th right>Actions</Th>
+            </Thead>
+            <tbody>
+              {items.map((p) => (
+                <tr key={p.id} className="border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50">
+                  <Td>
+                    <div className="flex items-center gap-2">
+                      <ProductImage src={productImageSrc(p.image_url)} name={p.name} size="sm" />
+                      <div className="min-w-0">
+                        <div className="font-semibold">
+                          <Link to={`/app/products/${p.id}`} className="rounded outline-none hover:text-primary-600 hover:underline focus-visible:ring-2 focus-visible:ring-primary-500">{p.name}</Link>
+                        </div>
+                        <div className="text-xs text-slate-500">{p.sku}</div>
+                      </div>
+                    </div>
+                  </Td>
+                  <Td muted>{p.category_name || '—'}</Td>
+                  <Td right muted>{formatMGA(p.purchase_price)}</Td>
+                  <Td right muted>{formatMGA(p.sale_price)}</Td>
+                  <Td right><span className="tabular-nums">{p.quantity}</span> <span className="text-xs text-slate-400">/ min {p.min_stock}</span></Td>
+                  <Td><StockBadge status={p.stock_status} /></Td>
+                  <Td right>
+                    {can('products.update') && (
+                      <button onClick={() => setModal({ mode: 'edit', item: p })} className="mr-3 inline-flex items-center gap-1 rounded font-semibold text-primary-600 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary-500" aria-label={`Modifier ${p.name}`}>
+                        <Pencil size={14} aria-hidden="true" />Modifier
+                      </button>
+                    )}
+                    <Link to={`/app/products/${p.id}`} className="mr-3 rounded font-semibold text-slate-600 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary-500">
+                      Voir
+                    </Link>
+                    {can('products.delete') && (
+                      <button onClick={() => handleDelete(p)} className="inline-flex items-center gap-1 rounded font-semibold text-red-600 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-red-500" aria-label={`Désactiver ${p.name}`}>
+                        <Ban size={14} aria-hidden="true" />Désactiver
+                      </button>
+                    )}
+                  </Td>
                 </tr>
-              </thead>
-              <tbody>
-                {items.map((p) => (
-                  <tr key={p.id} className="border-b border-slate-100 last:border-0">
-                    <td className="px-4 py-3">
-                      <div className="font-semibold">{p.name}</div>
-                      <div className="text-xs text-slate-500">{p.sku}</div>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">{p.category_name || '—'}</td>
-                    <td className="px-4 py-3 text-right">{formatMGA(p.purchase_price)}</td>
-                    <td className="px-4 py-3 text-right">{formatMGA(p.sale_price)}</td>
-                    <td className="px-4 py-3 text-right">{p.quantity} <span className="text-xs text-slate-400">/ min {p.min_stock}</span></td>
-                    <td className="px-4 py-3"><StockBadge status={p.stock_status} /></td>
-                    <td className="px-4 py-3 text-right">
-                      {can('products.update') && (
-                        <button onClick={() => setModal({ mode: 'edit', item: p })} className="mr-3 font-semibold text-primary-600 hover:underline">Modifier</button>
-                      )}
-                      {can('products.delete') && (
-                        <button onClick={() => handleDelete(p)} className="font-semibold text-red-600 hover:underline">Désactiver</button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+              ))}
+            </tbody>
+          </Table>
           </div>
           {/* Mobile : cartes */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:hidden">
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 md:hidden">
             {items.map((p) => (
-              <div key={p.id} className="rounded-xl border border-slate-200 bg-white p-4">
+              <div key={p.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                 <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h3 className="font-semibold">{p.name}</h3>
-                    <p className="text-xs text-slate-500">{p.sku} · {p.category_name || 'Sans catégorie'}</p>
+                  <div className="flex min-w-0 items-start gap-2">
+                    <ProductImage src={productImageSrc(p.image_url)} name={p.name} size="sm" />
+                    <div className="min-w-0">
+                      <h3 className="truncate font-semibold">
+                        <Link to={`/app/products/${p.id}`} className="rounded outline-none hover:text-primary-600 hover:underline focus-visible:ring-2 focus-visible:ring-primary-500">{p.name}</Link>
+                      </h3>
+                      <p className="truncate text-xs text-slate-500">{p.sku} · {p.category_name || 'Sans catégorie'}</p>
+                    </div>
                   </div>
                   <StockBadge status={p.stock_status} />
                 </div>
                 <div className="mt-2 text-sm">
-                  <p>Achat : <strong>{formatMGA(p.purchase_price)}</strong> · Vente : <strong>{formatMGA(p.sale_price)}</strong></p>
-                  <p className="text-slate-600">Stock : {p.quantity} (min {p.min_stock})</p>
+                  <p>Achat : <strong className="tabular-nums">{formatMGA(p.purchase_price)}</strong> · Vente : <strong className="tabular-nums">{formatMGA(p.sale_price)}</strong></p>
+                  <p className="text-slate-600">Stock : <span className="tabular-nums">{p.quantity}</span> (min {p.min_stock})</p>
                 </div>
                 <div className="mt-3 flex gap-3">
                   {can('products.update') && (
-                    <button onClick={() => setModal({ mode: 'edit', item: p })} className="text-sm font-semibold text-primary-600 hover:underline">Modifier</button>
+                    <button onClick={() => setModal({ mode: 'edit', item: p })} className="inline-flex items-center gap-1 rounded text-sm font-semibold text-primary-600 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary-500" aria-label={`Modifier ${p.name}`}>
+                      <Pencil size={14} aria-hidden="true" />Modifier
+                    </button>
                   )}
                   {can('products.delete') && (
-                    <button onClick={() => handleDelete(p)} className="text-sm font-semibold text-red-600 hover:underline">Désactiver</button>
+                    <button onClick={() => handleDelete(p)} className="inline-flex items-center gap-1 rounded text-sm font-semibold text-red-600 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-red-500" aria-label={`Désactiver ${p.name}`}>
+                      <Ban size={14} aria-hidden="true" />Désactiver
+                    </button>
                   )}
                 </div>
               </div>

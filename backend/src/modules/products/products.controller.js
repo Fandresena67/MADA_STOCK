@@ -45,4 +45,28 @@ async function remove(req, res, next) {
   }
 }
 
-module.exports = { list, getById, create, patch, remove };
+async function setImage(req, res, next) {
+  try {
+    res.json({ data: await service.setImage(req.authUser, req.params.id, req.file, metaOf(req)) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function removeImage(req, res, next) {
+  try {
+    res.json({ data: await service.removeImage(req.authUser, req.params.id, metaOf(req)) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function stats(req, res, next) {
+  try {
+    res.json({ data: await service.stats(req.params.id, req.authUser.companyId) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { list, getById, create, patch, remove, setImage, removeImage, stats };

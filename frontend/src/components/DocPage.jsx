@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { PageHeader, Loading, Empty, ErrorBox, Modal, Pagination, SearchInput } from '../components/common';
+import { Plus, FilePlus2 } from 'lucide-react';
+import { PageHeader, Loading, ErrorBox, Modal, Pagination, SearchInput, StatusBadge, EmptyState, Table, Thead, Th, Td } from '../components/common';
+import { Button, Select } from '../components/ui';
 import { DocForm } from '../components/DocForm';
 import { usePermissions } from '../hooks/usePermissions';
 import { formatMGA } from '../lib/format';
 
+// Conservé pour compatibilité d'import (DocDetail, Invoices) — préférer StatusBadge.
 export const STATUS_STYLE = {
   draft: 'bg-slate-200 text-slate-700',
   confirmed: 'bg-emerald-100 text-emerald-700',
@@ -74,57 +77,82 @@ export function makeDocPage(cfg) {
           subtitle={cfg.subtitle}
           action={
             can(cfg.perms.create) && (
-              <button onClick={() => setModal(true)} className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
-                {cfg.createLabel}
-              </button>
+              <Button onClick={() => setModal(true)} icon={<Plus size={16} aria-hidden="true" />}>
+                {cfg.createLabel.replace('+ ', '')}
+              </Button>
             )
           }
         />
         {notice && <p className="mb-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700" role="status">{notice}</p>}
         <div className="mb-4 flex flex-col gap-2 sm:flex-row">
           <SearchInput value={filters.search} onChange={(v) => { setPage(1); setFilters((f) => ({ ...f, search: v })); }} placeholder="Référence, tiers…" />
-          <select value={filters.status} onChange={(e) => { setPage(1); setFilters((f) => ({ ...f, status: e.target.value })); }} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+          <Select value={filters.status} onChange={(e) => { setPage(1); setFilters((f) => ({ ...f, status: e.target.value })); }} aria-label="Statut">
             <option value="">Tous statuts</option>
             <option value="draft">Brouillon</option>
             <option value="confirmed">Confirmé</option>
             <option value="cancelled">Annulé</option>
-          </select>
+          </Select>
         </div>
         {loading ? (
           <Loading />
         ) : error ? (
           <ErrorBox message={error} onRetry={load} />
         ) : items.length === 0 ? (
-          <Empty message={`Aucun élément. Créez votre premier ${cfg.singular}.`} />
+          <EmptyState
+            icon={<FilePlus2 size={22} aria-hidden="true" />}
+            title={`Aucun ${cfg.singular}`}
+            message={`Créez votre premier ${cfg.singular} pour le retrouver ici.`}
+            action={can(cfg.perms.create) && (
+              <Button onClick={() => setModal(true)} icon={<Plus size={16} aria-hidden="true" />}>
+                {cfg.createLabel.replace('+ ', '')}
+              </Button>
+            )}
+          />
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-500">
-                  <th className="px-4 py-3">Référence</th>
-                  <th className="px-4 py-3">{cfg.tierLabel}</th>
-                  <th className="px-4 py-3">Statut</th>
-                  <th className="px-4 py-3 text-right">Total</th>
-                  <th className="px-4 py-3 text-right">Détail</th>
+          <>
+          <div className="hidden md:block">
+          <Table>
+            <Thead>
+              <Th>Référence</Th>
+              <Th>{cfg.tierLabel}</Th>
+              <Th>Statut</Th>
+              <Th right>Total</Th>
+              <Th right>Détail</Th>
+            </Thead>
+            <tbody>
+              {items.map((d) => (
+                <tr key={d.id} className="border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50">
+                  <Td><span className="font-semibold">{d.reference}</span></Td>
+                  <Td muted>{d.tier_name}</Td>
+                  <Td><StatusBadge status={d.status} /></Td>
+                  <Td right><span className="font-semibold tabular-nums">{formatMGA(d.total)}</span></Td>
+                  <Td right>
+                    <Link to={`${cfg.basePath}/${d.id}`} className="rounded font-semibold text-primary-600 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary-500">Ouvrir</Link>
+                  </Td>
                 </tr>
-              </thead>
-              <tbody>
-                {items.map((d) => (
-                  <tr key={d.id} className="border-b border-slate-100 last:border-0">
-                    <td className="px-4 py-3 font-semibold">{d.reference}</td>
-                    <td className="px-4 py-3 text-slate-600">{d.tier_name}</td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${STATUS_STYLE[d.status]}`}>{d.status}</span>
-                    </td>
-                    <td className="px-4 py-3 text-right">{formatMGA(d.total)}</td>
-                    <td className="px-4 py-3 text-right">
-                      <Link to={`${cfg.basePath}/${d.id}`} className="font-semibold text-primary-600 hover:underline">Ouvrir</Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+              ))}
+            </tbody>
+          </Table>
           </div>
+          {/* Mobile : cartes */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:hidden">
+            {items.map((d) => (
+              <div key={d.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <h3 className="truncate font-semibold">{d.reference}</h3>
+                    <p className="truncate text-xs text-slate-500">{d.tier_name}</p>
+                  </div>
+                  <StatusBadge status={d.status} />
+                </div>
+                <div className="mt-2 flex items-center justify-between text-sm">
+                  <span className="font-semibold tabular-nums">{formatMGA(d.total)}</span>
+                  <Link to={`${cfg.basePath}/${d.id}`} className="rounded font-semibold text-primary-600 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-primary-500">Ouvrir</Link>
+                </div>
+              </div>
+            ))}
+          </div>
+          </>
         )}
         <Pagination meta={meta} onPage={setPage} />
         {modal && (
@@ -135,6 +163,7 @@ export function makeDocPage(cfg) {
               products={products}
               priceKey={cfg.priceKey}
               stockHint={cfg.stockHint}
+              onSearchProducts={(term) => cfg.api.listProducts({ page: 1, limit: 20, search: term }).then((r) => r.data)}
               onSubmit={handleSubmit}
               submitting={submitting}
               submitLabel="Créer le brouillon"

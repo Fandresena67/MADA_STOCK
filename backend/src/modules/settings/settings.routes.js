@@ -3,6 +3,7 @@ const { validate } = require('../../middlewares/validate');
 const { authenticateJWT } = require('../../middlewares/auth');
 const { attachFreshUser, requireTenant, requireRole, requirePermission } = require('../../middlewares/rbac');
 const { settingsPatchSchema } = require('./settings.validation');
+const { singleImageUpload } = require('../uploads/imageUpload');
 const controller = require('./settings.controller');
 
 const router = express.Router();
@@ -13,5 +14,8 @@ router.use(authenticateJWT, attachFreshUser, requireTenant);
 router.get('/', requirePermission('settings.view'), controller.get);
 // Modification : company_admin uniquement (+ permission).
 router.patch('/', requireRole('company_admin'), requirePermission('settings.update'), validate(settingsPatchSchema), controller.patch);
+// Logo : même garde, upload partagé (dossier /uploads/logos dédié).
+router.patch('/logo', requireRole('company_admin'), requirePermission('settings.update'), singleImageUpload('logo'), controller.setLogo);
+router.delete('/logo', requireRole('company_admin'), requirePermission('settings.update'), controller.removeLogo);
 
 module.exports = router;

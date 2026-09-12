@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Plus, Minus, SlidersHorizontal, History } from 'lucide-react';
 import { listMovements, listProducts, createEntry, createExit, createAdjustment } from '../api/catalog';
 import { usePermissions } from '../hooks/usePermissions';
 import { useInvalidateStats } from '../hooks/useInvalidateStats';
-import { PageHeader, Loading, Empty, ErrorBox, Modal, Pagination, SearchInput } from '../components/common';
+import { PageHeader, Loading, ErrorBox, Modal, Pagination, SearchInput, MovementBadge, EmptyState, Table, Thead, Th, Td } from '../components/common';
+import { Button } from '../components/ui';
 import { MovementForm, movementTitle } from '../components/MovementForm';
 
 const TYPES = [
@@ -12,15 +14,6 @@ const TYPES = [
   { key: 'adjustment', label: 'Ajustements' },
   { key: 'initial', label: 'Stock initial' },
 ];
-
-const TYPE_STYLE = {
-  initial: 'bg-slate-200 text-slate-700',
-  in: 'bg-emerald-100 text-emerald-700',
-  out: 'bg-red-100 text-red-700',
-  adjustment: 'bg-amber-100 text-amber-700',
-};
-
-const TYPE_LABEL = { initial: 'Initial', in: 'Entrée', out: 'Sortie', adjustment: 'Ajustement' };
 
 function formatDate(iso) {
   try {
@@ -111,102 +104,100 @@ export default function MovementsPage() {
         action={
           <div className="flex flex-wrap gap-2">
             {can('stock.in') && (
-              <button onClick={() => setModal('in')} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
-                + Entrée
-              </button>
+              <Button variant="success" onClick={() => setModal('in')} icon={<Plus size={16} aria-hidden="true" />}>
+                Entrée
+              </Button>
             )}
             {can('stock.out') && (
-              <button onClick={() => setModal('out')} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">
-                − Sortie
-              </button>
+              <Button variant="danger" onClick={() => setModal('out')} icon={<Minus size={16} aria-hidden="true" />}>
+                Sortie
+              </Button>
             )}
             {can('stock.adjust') && (
-              <button onClick={() => setModal('adjustment')} className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700">
-                Ajuster le stock
-              </button>
+              <Button variant="warning" onClick={() => setModal('adjustment')} icon={<SlidersHorizontal size={16} aria-hidden="true" />}>
+                Ajuster
+              </Button>
             )}
           </div>
         }
       />
       {notice && <p className="mb-4 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700" role="status">{notice}</p>}
-      <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
-        <SearchInput value={filters.search} onChange={(v) => setFilter('search', v)} placeholder="Produit, motif, référence…" />
-        <select value={filters.product_id} onChange={(e) => setFilter('product_id', e.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)] xl:gap-4">
+        <div className="min-w-0 [&>div]:w-full [&_input]:h-10">
+          <SearchInput value={filters.search} onChange={(v) => setFilter('search', v)} placeholder="Produit, motif, référence…" />
+        </div>
+        <select value={filters.product_id} onChange={(e) => setFilter('product_id', e.target.value)} aria-label="Filtrer par produit" className="h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100">
           <option value="">Tous produits</option>
           {products.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
         </select>
-        <select value={filters.movement_type} onChange={(e) => setFilter('movement_type', e.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+        <select value={filters.movement_type} onChange={(e) => setFilter('movement_type', e.target.value)} aria-label="Filtrer par type de mouvement" className="h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100">
           {TYPES.map((t) => (
             <option key={t.label} value={t.key}>{t.label}</option>
           ))}
         </select>
-        <input type="date" value={filters.date_from} onChange={(e) => setFilter('date_from', e.target.value)} aria-label="Date début" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" />
-        <input type="date" value={filters.date_to} onChange={(e) => setFilter('date_to', e.target.value)} aria-label="Date fin" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" />
+        <input type="date" value={filters.date_from} onChange={(e) => setFilter('date_from', e.target.value)} aria-label="Date début" className="h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" />
+        <input type="date" value={filters.date_to} onChange={(e) => setFilter('date_to', e.target.value)} aria-label="Date fin" className="h-10 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100" />
       </div>
       {loading ? (
         <Loading />
       ) : error ? (
         <ErrorBox message={error} onRetry={load} />
       ) : items.length === 0 ? (
-        <Empty message="Aucun mouvement. Enregistrez une entrée, une sortie ou un ajustement." />
+        <EmptyState
+          icon={<History size={22} aria-hidden="true" />}
+          title="Aucun mouvement"
+          message="Enregistrez une entrée, une sortie ou un ajustement pour alimenter l'historique."
+        />
       ) : (
         <>
-          <div className="hidden overflow-x-auto rounded-xl border border-slate-200 bg-white md:block">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-500">
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Produit</th>
-                  <th className="px-4 py-3">Type</th>
-                  <th className="px-4 py-3 text-right">Qté</th>
-                  <th className="px-4 py-3 text-right">Avant → Après</th>
-                  <th className="px-4 py-3">Motif</th>
-                  <th className="px-4 py-3">Auteur</th>
-                  <th className="px-4 py-3">Référence</th>
+          <div className="hidden md:block">
+          <Table minWidth="min-w-[760px]">
+            <Thead>
+              <Th>Date</Th>
+              <Th>Produit</Th>
+              <Th>Type</Th>
+              <Th right>Qté</Th>
+              <Th right>Avant → Après</Th>
+              <Th>Motif</Th>
+              <Th>Auteur</Th>
+              <Th>Référence</Th>
+            </Thead>
+            <tbody>
+              {items.map((m) => (
+                <tr key={m.id} className="border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50">
+                  <Td muted><span className="whitespace-nowrap">{formatDate(m.created_at)}</span></Td>
+                  <Td>
+                    <div className="font-semibold">{m.product_name}</div>
+                    <div className="text-xs text-slate-500">{m.product_sku}</div>
+                  </Td>
+                  <Td><MovementBadge type={m.movement_type} /></Td>
+                  <Td right><span className="font-semibold tabular-nums">{m.quantity}</span></Td>
+                  <Td right muted><span className="whitespace-nowrap tabular-nums">{m.quantity_before} → {m.quantity_after}</span></Td>
+                  <Td muted><span className="block max-w-[200px] truncate" title={m.reason || m.notes}>{m.reason || '—'}</span></Td>
+                  <Td muted>{m.author_name || 'Compte supprimé'}</Td>
+                  <Td muted>{m.reference || '—'}</Td>
                 </tr>
-              </thead>
-              <tbody>
-                {items.map((m) => (
-                  <tr key={m.id} className="border-b border-slate-100 last:border-0">
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-600">{formatDate(m.created_at)}</td>
-                    <td className="px-4 py-3">
-                      <div className="font-semibold">{m.product_name}</div>
-                      <div className="text-xs text-slate-500">{m.product_sku}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${TYPE_STYLE[m.movement_type]}`}>
-                        {TYPE_LABEL[m.movement_type]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right font-semibold">{m.quantity}</td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right text-slate-600">{m.quantity_before} → {m.quantity_after}</td>
-                    <td className="max-w-[200px] truncate px-4 py-3 text-slate-600" title={m.reason || m.notes}>{m.reason || '—'}</td>
-                    <td className="px-4 py-3 text-slate-600">{m.author_name || 'Compte supprimé'}</td>
-                    <td className="px-4 py-3 text-slate-600">{m.reference || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+              ))}
+            </tbody>
+          </Table>
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:hidden">
             {items.map((m) => (
-              <div key={m.id} className="rounded-xl border border-slate-200 bg-white p-4">
+              <div key={m.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
                 <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h3 className="font-semibold">{m.product_name}</h3>
+                  <div className="min-w-0">
+                    <h3 className="truncate font-semibold">{m.product_name}</h3>
                     <p className="text-xs text-slate-500">{formatDate(m.created_at)} · {m.author_name || 'Compte supprimé'}</p>
                   </div>
-                  <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${TYPE_STYLE[m.movement_type]}`}>
-                    {TYPE_LABEL[m.movement_type]}
-                  </span>
+                  <MovementBadge type={m.movement_type} />
                 </div>
                 <p className="mt-2 text-sm">
-                  Quantité : <strong>{m.quantity}</strong> · {m.quantity_before} → <strong>{m.quantity_after}</strong>
+                  Quantité : <strong className="tabular-nums">{m.quantity}</strong> · <span className="tabular-nums">{m.quantity_before} → {m.quantity_after}</span>
                 </p>
                 {(m.reason || m.reference) && (
-                  <p className="mt-1 text-sm text-slate-600">{[m.reason, m.reference].filter(Boolean).join(' · ')}</p>
+                  <p className="mt-1 truncate text-sm text-slate-600">{[m.reason, m.reference].filter(Boolean).join(' · ')}</p>
                 )}
               </div>
             ))}

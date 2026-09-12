@@ -5,3 +5,23 @@
 body {
   @apply bg-slate-50 text-slate-900 antialiased;
 }
+
+/* Impression facture : format A4, document seul (sidebar/header déjà print:hidden). */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  body {
+    background: #fff;
+  }
+  /* Évite les coupures absurdes dans les blocs et tableaux. */
+  table,
+  tr,
+  .rounded-xl {
+    break-inside: avoid;
+  }
+  thead {
+    display: table-header-group;
+  }
+}
